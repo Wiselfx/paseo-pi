@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Throwaway Paseo daemon home (credentials, keys, plugin settings, logs)
+.paseo-dev/
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Logs and temp files
+*.log
+*.tmp
+*.tgz
+
+# Local pi state that can hold API keys, tokens, or private sessions
+settings.json
+settings.json.*
+models.json
+models.json.*
+models-store.json
+auth.json
+credentials.json
+sessions/
+*.jsonl
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS noise
+.DS_Store
+Thumbs.db

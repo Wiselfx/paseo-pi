@@ -1,0 +1,5 @@
+{
+  "id": "paseo-pi",
+  "description": "Paseo integration for Pi: its direct provider, session bridge, and workspace tooling.",
+  "requirements": { "paseo": "^0.12.0" }
+}
