@@ -19,7 +19,7 @@ stated otherwise.
 | `index.client.tsx` | Client entry: sidebar row, management screen, launch-settings screen, command-center items. |
 | `shared/` | Zod contracts shared by client and server; no runtime state. |
 | `shared/constants.ts` | IDs: plugin `paseo-pi`, provider `pi-plugin`, screen `pi-config`, launch settings `paseo-pi-launch`, persistence version `1`. |
-| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, four `no*` toggles, `reloadCommand`, `exposeModels`). |
+| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, the context/MCP toggles, `reloadCommand`, `exposeModels`). |
 | `shared/source.ts` | Normalises a pasted `pi install …` command to its package source. |
 | `shared/rpc.ts` | Status/refresh RPCs. |
 | `shared/management.ts` | One RPC per management operation, all schemas and limits, `PI_MODELS_SECRET_MASK`. |
@@ -139,11 +139,12 @@ invoked with.
 
 Per-agent provider options (`PiProviderOptionsSchema`) are `command`, `args`, `env`, `inheritEnv`,
 `sessionDir`, `noExtensions`, `noSkills`, `noContextFiles`, `noMcp`, `extraArgs`. Unknown keys are
-stripped. The host `no*` toggles are OR-ed with the per-agent ones, and the host `reloadCommand`
-toggle (default on) controls the generated extension.
+stripped. Per-agent `noExtensions` and `noSkills` remain for a deliberate whole-run override;
+the host screen no longer offers them, because extensions and skills are switched one at a time.
+The host `reloadCommand` toggle (default on) controls the generated extension.
 
 `buildSessionArgs` emits, in order: `--mode rpc`, `--session <abs>` (resume) or `--no-session`,
-`--session-dir`, `--name <title>`, the four `--no-*` flags, `--append-system-prompt <text>` when a
+`--session-dir`, `--name <title>`, any requested `--no-*` flags, `--append-system-prompt <text>` when a
 system prompt was supplied, one `--extension <path>` per `extensionPaths` entry (the reload bridge),
 then `extraArgs` last. Launch args are prepended before all of this by the connection.
 
@@ -199,6 +200,7 @@ primitives:
 | `paseo-pi.add-extension` | `{ path }` → `{ path }` |
 | `paseo-pi.remove-extension` | `{ path }` → `{ path }` |
 | `paseo-pi.set-builtin-extension` | `{ name, enabled }` → `{ enabled }` |
+| `paseo-pi.set-extension-enabled` | `{ path, enabled }` → `{ path, enabled }` |
 
 **Packages.** `installPiPackage` / `updatePiPackages` / `removePiPackage` shell out to
 `pi install|update|remove` with the agent directory as cwd, `PI_CODING_AGENT_DIR` forced, launch
@@ -225,6 +227,14 @@ appends `-builtin:<name>` when disabling. Built-ins not mentioned are enabled. `
 can also carry these markers directly; the list view marks the built-in disabled when it sees
 `-builtin:<name>`.
 
+**One extension at a time.** `setPiExtensionEnabled` uses pi's exact override markers in
+`settings.extensions`: disabling removes a `+path` registration (keeping a plain one) and appends
+`-path`; enabling removes `-path` and `!path`. Plain entries are never removed, so a configured
+extension keeps its registration while switched off. `listPiResources` reports `enabled` for
+configured, discovered, and built-in entries using the same `!`/`+`/`-` precedence pi applies.
+Discovered entries mirror pi's discovery (`pi.extensions` in `package.json`, then `index.ts` or
+`index.js`, or a top-level `.ts`/`.js` file).
+
 **Extension paths.** `addPiExtension` rejects `-`, `!`, control characters, and
 `+?builtin:` paths; it is idempotent for an existing `value` or `+value`, and removes a stale
 `-value`/`!value` so re-adding actually re-enables the extension. `removePiExtension` removes
@@ -240,6 +250,7 @@ through `ConfirmButton` (two taps, 5 s window). Package output is shown as the n
 |---|---|
 | `paseo-pi.inspect-skill-source` | `{ source }` → `{ candidates[{ name, description, path, url, installed }] }` |
 | `paseo-pi.install-skill-source` | `{ source, path? }` → `{ path, name }` |
+| `paseo-pi.set-skill-enabled` | `{ path, enabled }` → `{ path, enabled }` |
 | `paseo-pi.create-skill` | `{ name, description, instructions? }` → `{ path }` |
 | `paseo-pi.delete-skill` | `{ path }` → `{ path }` |
 
@@ -270,9 +281,16 @@ real skills root stays inside the real agent directory. GitHub's rate limit (403
 default branch produce explicit errors. Tests inject `fetch`, so the suite stays offline; a live run
 against `anthropics/skills` found all 20 skills and installed one to a temporary agent directory.
 
+Each skill also has its own **Enabled** switch. `setPiSkillEnabled` writes an exact `-<SKILL.md path>`
+entry to `settings.skills` when off and removes it when on; pi matches a `SKILL.md` entry by its file
+or its containing directory. Package skills show a badge instead: their resources follow the
+package's filters, so they are not toggled here. The listing reports `enabled` for user, agents, and
+configured skills.
+
 Client: the Skills card in `client/manage/resources.tsx`: paste a link, **Find skills**, filter and
 Add a candidate (installed ones are disabled); **Write one instead** opens the manual form. Remove
-with confirm and source badges remain.
+with confirm, the per-skill switch, and source badges remain. The Extensions card has one switch per
+configured or discovered extension, and one per built-in.
 
 ### 3.3 Settings
 
@@ -462,9 +480,9 @@ NODE_OPTIONS= ./node_modules/.bin/vitest run
 | `tests/skill-source.test.ts` | GitHub link forms, SKILL.md frontmatter (quotes, block scalars), repository scans with a fake `fetch`, per-file tolerance, rate-limit and empty-repo errors, and installs that write `SKILL.md` with mode 0600 and refuse duplicates. |
 | `tests/model-source.test.ts` | OpenAI/Anthropic/Google endpoint, headers and query keys; `$ENV` expansion; vision/reasoning/context mapping; 401, non-JSON, missing base URL and missing provider errors. |
 | `tests/connection-catalog.test.ts` | The catalog is empty without `exposeModels` (and does not even ask pi for models), and contains pi's models with it. |
-| `tests/management.test.ts` | Settings read/save/stale revision, resource listing, provider/model CRUD without key disclosure, raw JSON revisions, secret masking/restore, prototype-named providers, duplicate/missing providers, model limit clearing, skill create/delete, prompt write/clear, session listing and confined delete, and mapping a session file to Paseo agent ids. |
+| `tests/management.test.ts` | Settings read/save/stale revision, resource listing, provider/model CRUD without key disclosure, raw JSON revisions, secret masking/restore, prototype-named providers, duplicate/missing providers, model limit clearing, skill create/delete, per-skill and per-extension toggles that leave their neighbours alone, prompt write/clear, session listing and confined delete, and mapping a session file to Paseo agent ids. |
 
-Current result: **12 files, 85 tests passed**, `tsc --noEmit` exit 0.
+Current result: **12 files, 86 tests passed**, `tsc --noEmit` exit 0.
 
 Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARGS`,
 `PI_SMOKE_DIR`, `PI_SMOKE_MODEL`, `PI_SMOKE_CWD`):
@@ -476,6 +494,7 @@ Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARG
 | `smoke-resume.ts` | Resuming the newest smoke session file and replaying history. |
 | `smoke-list.ts` | `listPiSessions` finds files in the smoke directory. |
 | `smoke-reload.ts` | Against a real pi child with a throwaway agent dir: `/reload` is a listed command, picks up a skill created after open, and is refused when `reloadCommand` is off. |
+| `smoke-toggles.ts` | A real pi child with a throwaway agent dir: a `-<SKILL.md>` marker hides one skill, a `-<extension>` marker hides one extension, and removing the markers loads both again while the other skill stays on. |
 | `smoke-paseo.ts` | Against a running daemon: provider availability, no catalog by default (or a chosen model with `PI_SMOKE_EXPOSE_MODELS=1`), an agent that finishes with a visible reply, and (for `pi-plugin`) the listed reload command plus its notice. |
 
 Run with `NODE_OPTIONS= bun scripts/smoke-*.ts`. `smoke-paseo` defaults to
@@ -514,6 +533,7 @@ session JSONL. It is provider-side; retry the same step once before investigatin
 | Delete rejects a file | Path outside the session dir | Realpath of both sides | `deleteManagedSession`, `inside` |
 | `Paseo could not delete agent …` | The CLI could not run or reach the daemon | `PASEO_HOME`; `paseo delete <id> --json --home …` by hand; whether `@getpaseo/cli` sits beside the daemon | `deletePaseoAgent`, `paseoAgentIdsForSession` |
 | GitHub lookup fails | Network, rate limit, or the link form | The message (rate limit / not found / no SKILL.md); try a raw or file link | `server/skill-source.ts` |
+| A per-item switch does nothing | The resource came from a package, or the marker is a glob | `settings.extensions` / `settings.skills`; whether the item has its own switch | `setPiExtensionEnabled`, `setPiSkillEnabled`, `markerIsEnabled` |
 | Fetch models says the key was rejected | Provider credentials, not the plugin | The provider's key and base URL; `$ENV` names in the daemon's environment | `fetchProviderModels` |
 | Raw editor shows `__PI_SECRET__` | Masking working as designed | Save restores it unless you edited the value | `redactModelsSecrets` / `restoreModelsSecrets` |
 | Status/model count stale | Probe cache | Press Refresh (clears the cache) | `server/pi-status.ts` |

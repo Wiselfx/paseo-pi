@@ -14,8 +14,6 @@ function harness(exposeModels: boolean) {
 			args: [],
 			inheritEnv: [],
 			sessionDir: "/tmp/paseo-pi-test",
-			noExtensions: false,
-			noSkills: false,
 			noContextFiles: false,
 			noMcp: false,
 			exposeModels,

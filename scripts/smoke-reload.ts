@@ -35,7 +35,6 @@ await writeFile(
 
 const settings: PiConnectionDeps["settings"] = {
 	...launchSettings,
-	noSkills: false,
 	reloadCommand: true,
 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

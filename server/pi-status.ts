@@ -55,8 +55,6 @@ async function probeModels(
 		...settings.args,
 		...buildSessionArgs({
 			persist: false,
-			...(settings.noExtensions ? { noExtensions: true } : {}),
-			...(settings.noSkills ? { noSkills: true } : {}),
 			...(settings.noContextFiles ? { noContextFiles: true } : {}),
 			...(settings.noMcp ? { noMcp: true } : {}),
 		}),

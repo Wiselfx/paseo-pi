@@ -10,6 +10,8 @@ import {
 	piInstallSkillSourceRpc,
 	piListResourcesRpc,
 	piSetBuiltinExtensionRpc,
+	piSetExtensionEnabledRpc,
+	piSetSkillEnabledRpc,
 	piUpdatePackageRpc,
 	piRemoveExtensionRpc,
 	piRemovePackageRpc,
@@ -27,6 +29,7 @@ import {
 	Notice,
 	TextField,
 	TextArea,
+	Toggle,
 	type ManageStyles,
 } from "./shared";
 
@@ -37,6 +40,8 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 	const addExtensionRpc = useRpc(piAddExtensionRpc);
 	const removeExtensionRpc = useRpc(piRemoveExtensionRpc);
 	const setBuiltinRpc = useRpc(piSetBuiltinExtensionRpc);
+	const setExtensionEnabledRpc = useRpc(piSetExtensionEnabledRpc);
+	const setSkillEnabledRpc = useRpc(piSetSkillEnabledRpc);
 	const updateRpc = useRpc(piUpdatePackageRpc);
 	const createRpc = useRpc(piCreateSkillRpc);
 	const inspectSkillRpc = useRpc(piInspectSkillSourceRpc);
@@ -285,20 +290,34 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 									<Text style={styles.mono}>{entry.path ?? entry.source}</Text>
 									{entry.note ? <Text style={styles.muted}>{entry.note}</Text> : null}
 								</View>
-								{entry.removable ? (
-									<ConfirmButton
+								<View style={styles.wrap}>
+									<Toggle
 										styles={styles}
-										label="Remove"
-										confirmLabel="Confirm remove"
+										label="Enabled"
+										value={entry.enabled}
 										disabled={busy}
-										onConfirm={() =>
+										onChange={(enabled) =>
 											void run(async () => {
-												await removeExtensionRpc({ path: entry.source });
-												return `Removed ${entry.source}.`;
+												const result = await setExtensionEnabledRpc({ path: entry.source, enabled });
+												return `${result.path} ${result.enabled ? "enabled" : "disabled"}. New sessions use the change.`;
 											})
 										}
 									/>
-								) : null}
+									{entry.removable ? (
+										<ConfirmButton
+											styles={styles}
+											label="Remove"
+											confirmLabel="Confirm remove"
+											disabled={busy}
+											onConfirm={() =>
+												void run(async () => {
+													await removeExtensionRpc({ path: entry.source });
+													return `Removed ${entry.source}.`;
+												})
+											}
+										/>
+									) : null}
+								</View>
 							</View>
 						))}
 					</View>
@@ -306,25 +325,25 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 
 				<View style={{ gap: 8 }}>
 					<Text style={styles.sectionLabel}>Built-in extensions</Text>
-					<View style={styles.wrap}>
-						{builtins.map((entry) => (
-							<Button
-								key={entry.id}
+					{builtins.map((entry) => (
+						<View key={entry.id} style={styles.item}>
+							<Toggle
 								styles={styles}
-								label={`${entry.enabled ? "Disable" : "Enable"} ${entry.label}`}
+								label={entry.label}
+								value={entry.enabled}
 								disabled={busy}
-								onPress={() =>
+								onChange={(enabled) =>
 									void run(async () => {
 										await setBuiltinRpc({
 											name: entry.label as "mcp" | "llama.cpp" | "codemode" | "tool-search",
-											enabled: !entry.enabled,
+											enabled,
 										});
-										return `${entry.label} ${entry.enabled ? "disabled" : "enabled"}. New sessions use the change.`;
+										return `${entry.label} ${enabled ? "enabled" : "disabled"}. New sessions use the change.`;
 									})
 								}
 							/>
-						))}
-					</View>
+						</View>
+					))}
 					<Text style={styles.muted}>Changes apply to new sessions; a running session keeps its loaded extensions.</Text>
 				</View>
 			</Card>
@@ -471,22 +490,38 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 							{skill.description ? <Text style={styles.muted}>{skill.description}</Text> : null}
 							<Text style={styles.mono}>{skill.path}</Text>
 						</View>
-						{skill.removable ? (
-							<ConfirmButton
-								styles={styles}
-								label="Remove"
-								confirmLabel="Confirm remove"
-								disabled={busy}
-								onConfirm={() =>
-									void run(async () => {
-										await deleteRpc({ path: skill.path });
-										return `Removed ${skill.name}.`;
-									})
-								}
-							/>
-						) : (
-							<Badge styles={styles} label={skill.source} />
-						)}
+						<View style={styles.wrap}>
+							{skill.source === "package" ? (
+								<Badge styles={styles} label="from package" />
+							) : (
+								<Toggle
+									styles={styles}
+									label="Enabled"
+									value={skill.enabled}
+									disabled={busy}
+									onChange={(enabled) =>
+										void run(async () => {
+											const result = await setSkillEnabledRpc({ path: skill.path, enabled });
+											return `${skill.name} ${result.enabled ? "enabled" : "disabled"}. New sessions use the change.`;
+										})
+									}
+								/>
+							)}
+							{skill.removable ? (
+								<ConfirmButton
+									styles={styles}
+									label="Remove"
+									confirmLabel="Confirm remove"
+									disabled={busy}
+									onConfirm={() =>
+										void run(async () => {
+											await deleteRpc({ path: skill.path });
+											return `Removed ${skill.name}.`;
+										})
+									}
+								/>
+							) : null}
+						</View>
 					</View>
 				))}
 			</Card>

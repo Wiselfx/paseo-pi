@@ -158,8 +158,11 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 26. **Adding a provider must not silently overwrite one.** The UI's "Add provider" starts with no
     `originalName`; the server now rejects a name that already exists. Editing carries
     `originalName` and rejects a provider that disappeared.
-27. **`-path`/`!path` in `settings.extensions` disables an extension.** Adding the same path without
-    removing the negation leaves it disabled. `addPiExtension` clears a stale negation on purpose.
+27. **`-path`/`!path` is pi's per-resource switch.** In `settings.extensions` it disables one
+    extension; in `settings.skills` it disables one skill (the marker may name `SKILL.md` or its
+    directory). Adding the same path without removing the negation leaves it disabled.
+    `addPiExtension` clears a stale negation on purpose; the toggles remove only exact markers so
+    their neighbours and plain registrations survive.
 28. **npm package names strip the version after the last `@`.** `npm:@scope/pkg@1.2.3` →
     `@scope/pkg`; `npm:@scope/pkg` keeps its leading `@` because `lastIndexOf("@") === 0`.
 29. **Local package sources are relative to the agent directory.** Package commands run with
@@ -208,6 +211,14 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 42. **The browser tool can be the broken part.** In this environment Chromium answered HTTP and
     served pages, but every `browser` action returned empty output until the app was reinstalled.
     Verify with `curl` and the live smoke scripts before assuming the app is at fault.
+
+43. **Discovered extensions are narrower than they look.** pi only discovers a top-level `.ts` or
+    `.js` file, or a directory with `pi.extensions`, `index.ts`, or `index.js`. `.mjs`, `.cjs`,
+    `.tsx`, and a bare `package.json` without `pi.extensions` are ignored. The listing now mirrors
+    that; a `.mjs` bridge only loads through an explicit `--extension`.
+44. **Exact markers are enough for switches.** pi's pattern engine also accepts globs and applies
+    `!`, then `+`, then `-`; the UI writes absolute exact paths, so the listing only evaluates exact
+    matches and leaves glob interpretation to pi.
 
 ## 3. Things that saved time
 

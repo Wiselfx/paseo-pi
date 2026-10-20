@@ -47,8 +47,9 @@ command palette.
 ## Configuration
 
 Launch options live in the plugin's `pi-launch` settings screen: command, command-prefix args,
-inherited environment, session directory, the `--no-*` resource toggles, **Expose models**, and
-the `/reload` command switch. These are host-scoped; a per-agent `providerOptions` override can replace them for one agent.
+inherited environment, session directory, context files and MCP switches, **Expose models**, and
+the `/reload` command switch. Extensions and skills are switched on or off one at a time in
+**Extensions & skills**; that is stored as pi's own `-path` markers in `settings.json`. These are host-scoped; a per-agent `providerOptions` override can replace them for one agent.
 
 pi's own files are managed directly:
 

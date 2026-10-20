@@ -38,6 +38,8 @@ translation, and session persistence. `server/sessions.ts` resolves and lists se
   reconciled exactly as the CLI does.
 - Skills are parsed from YAML frontmatter, created under the agent directory, deleted with
   realpath containment, or installed from a GitHub file/repository link (`server/skill-source.ts`).
+  Each user/agents skill and every extension has its own switch, written as pi's exact `-path`
+  marker rather than a whole-run `--no-extensions`/`--no-skills` flag.
 - Models can be fetched from the provider itself (`server/model-source.ts`) and added in one
   revision-checked write.
 - Package sources accept a pasted `pi install …` command (`shared/source.ts`).

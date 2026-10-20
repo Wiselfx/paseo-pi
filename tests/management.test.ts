@@ -22,6 +22,8 @@ import {
 	saveProvider,
 	savePiSettings,
 	setBuiltinExtension,
+	setPiExtensionEnabled,
+	setPiSkillEnabled,
 	writePrompt,
 } from "../server/management";
 import { PI_MODELS_SECRET_MASK } from "../shared/management";
@@ -329,6 +331,55 @@ describe("skills and prompts", () => {
 		await deletePiSkill(context, { path: created.path });
 		await expect(readFile(created.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 		expect(agentDir).toBeTruthy();
+	});
+
+	it("toggles one skill or extension without touching the others", async () => {
+		const { agentDir, context } = await fixture();
+		const first = await createPiSkill(context, {
+			name: "first-skill",
+			description: "First.",
+			instructions: "First body.",
+		});
+		const second = await createPiSkill(context, {
+			name: "second-skill",
+			description: "Second.",
+			instructions: "Second body.",
+		});
+
+		await setPiSkillEnabled({ agentDir, path: first.path, enabled: false });
+		let skills = (await listPiResources(context)).skills;
+		expect(skills.find((skill) => skill.name === "first-skill")?.enabled).toBe(false);
+		expect(skills.find((skill) => skill.name === "second-skill")?.enabled).toBe(true);
+		expect((await readPiSettings(agentDir)).settings.skills).toContain(`-${first.path}`);
+
+		await setPiSkillEnabled({ agentDir, path: first.path, enabled: true });
+		skills = (await listPiResources(context)).skills;
+		expect(skills.find((skill) => skill.name === "first-skill")?.enabled).toBe(true);
+		expect((await readPiSettings(agentDir)).settings.skills ?? []).not.toContain(`-${first.path}`);
+		expect(second.path).toBeTruthy();
+
+		await addPiExtension({ agentDir, path: "/tmp/first-extension.ts" });
+		await addPiExtension({ agentDir, path: "/tmp/second-extension.ts" });
+		await setPiExtensionEnabled({ agentDir, path: "/tmp/first-extension.ts", enabled: false });
+		let extensions = (await listPiResources(context)).extensions;
+		expect(extensions.find((entry) => entry.source === "/tmp/first-extension.ts")?.enabled).toBe(false);
+		expect(extensions.find((entry) => entry.source === "/tmp/second-extension.ts")?.enabled).toBe(true);
+		expect((await readPiSettings(agentDir)).settings.extensions).toContain("-/tmp/first-extension.ts");
+
+		await setPiExtensionEnabled({ agentDir, path: "/tmp/first-extension.ts", enabled: true });
+		extensions = (await listPiResources(context)).extensions;
+		expect(extensions.find((entry) => entry.source === "/tmp/first-extension.ts")?.enabled).toBe(true);
+		expect((await readPiSettings(agentDir)).settings.extensions).toContain("/tmp/first-extension.ts");
+		expect((await readPiSettings(agentDir)).settings.extensions).not.toContain("-/tmp/first-extension.ts");
+
+		const discovered = join(agentDir, "extensions", "discovered.ts");
+		await mkdir(join(agentDir, "extensions"), { recursive: true });
+		await writeFile(discovered, "export default () => {};\n");
+		expect((await listPiResources(context)).extensions.find((entry) => entry.path === discovered)?.enabled).toBe(true);
+		await setPiExtensionEnabled({ agentDir, path: discovered, enabled: false });
+		expect((await listPiResources(context)).extensions.find((entry) => entry.path === discovered)?.enabled).toBe(false);
+		await setPiExtensionEnabled({ agentDir, path: discovered, enabled: true });
+		expect((await listPiResources(context)).extensions.find((entry) => entry.path === discovered)?.enabled).toBe(true);
 	});
 
 	it("writes, reads, and clears SYSTEM.md and APPEND_SYSTEM.md", async () => {

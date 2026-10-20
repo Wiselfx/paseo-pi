@@ -7,8 +7,6 @@ export const piSettingsSchema = z.object({
 	args: z.array(z.string()).default([]),
 	inheritEnv: z.array(z.string()).default([]),
 	sessionDir: z.string().default(""),
-	noExtensions: z.boolean().default(false),
-	noSkills: z.boolean().default(false),
 	noContextFiles: z.boolean().default(false),
 	noMcp: z.boolean().default(false),
 	reloadCommand: z.boolean().default(true),

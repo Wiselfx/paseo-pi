@@ -599,36 +599,67 @@ async function discoveredExtensions(agentDir: string): Promise<PiExtensionEntry[
 		return [];
 	}
 	const output: PiExtensionEntry[] = [];
-	for (const entry of entries) {
-		if (entry.name.startsWith(".")) continue;
-		if (entry.isDirectory()) {
-			const packageJson = join(root, entry.name, "package.json");
-			if (!(await readText(packageJson, 1_000_000))) continue;
-			output.push({
-				id: `ext-dir:${join(root, entry.name)}`,
-				kind: "extension",
-				label: entry.name,
-				source: join(root, entry.name),
-				version: null,
-				path: join(root, entry.name),
-				enabled: true,
-				removable: false,
-				note: "Discovered in the agent extensions directory",
-			});
-			continue;
-		}
-		if (!entry.isFile() || !/\.(?:[cm]?[jt]sx?)$/u.test(entry.name)) continue;
+	const push = (file: string, label: string) => {
 		output.push({
-			id: `ext-file:${join(root, entry.name)}`,
+			id: `ext-file:${file}`,
 			kind: "extension",
-			label: entry.name,
-			source: join(root, entry.name),
+			label,
+			source: file,
 			version: null,
-			path: join(root, entry.name),
+			path: file,
 			enabled: true,
 			removable: false,
 			note: "Discovered in the agent extensions directory",
 		});
+	};
+	for (const entry of entries) {
+		if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+		if (entry.isDirectory()) {
+			// Mirrors pi's discovery: pi.extensions paths first, then index.ts, then index.js.
+			const directory = join(root, entry.name);
+			const manifest = await readText(join(directory, "package.json"), 1_000_000);
+			let declared: string[] = [];
+			if (manifest) {
+				try {
+					const parsed = JSON.parse(manifest) as { pi?: { extensions?: unknown } };
+					if (Array.isArray(parsed.pi?.extensions)) {
+						declared = parsed.pi.extensions.filter(
+							(value): value is string => typeof value === "string" && value.trim().length > 0,
+						);
+					}
+				} catch {
+					// A broken manifest is pi's diagnostic to report, not the list's.
+				}
+			}
+			const files: string[] = [];
+			for (const value of declared) {
+				const file = resolve(directory, value);
+				try {
+					if ((await stat(file)).isFile()) files.push(file);
+				} catch {
+					// Missing declared entries are skipped, like pi.
+				}
+			}
+			if (files.length === 0) {
+				for (const name of ["index.ts", "index.js"]) {
+					const file = join(directory, name);
+					try {
+						if ((await stat(file)).isFile()) {
+							files.push(file);
+							break;
+						}
+					} catch {
+						// Try the next candidate.
+					}
+				}
+			}
+			for (const file of files) {
+				push(file, files.length === 1 ? entry.name : `${entry.name}/${basename(file)}`);
+			}
+			continue;
+		}
+		if (!entry.isFile() || !/\.(?:ts|js)$/u.test(entry.name)) continue;
+		push(join(root, entry.name), entry.name);
 	}
 	return output;
 }
@@ -689,7 +720,7 @@ async function collectSkillFile(
 	}
 	const name = fields.get("name") || basename(dirname(file));
 	const description = fields.get("description") ?? "";
-	output.push({ name, description, path: file, source, removable });
+	output.push({ name, description, path: file, source, enabled: true, removable });
 }
 
 async function scanSkillRoot(root: SkillRoot, output: PiSkillEntry[]): Promise<void> {
@@ -750,6 +781,63 @@ async function packageSkillRoots(
 	return roots;
 }
 
+/**
+ * Exact override entries (`-path`, `!path`, `+path`) are how pi turns one discovered extension or
+ * skill off and on. Globs stay pi's job: matching them here would need its full pattern rules.
+ */
+function markerPaths(value: string, agentDir: string): string[] | null {
+	const first = value[0];
+	if (first !== "-" && first !== "!" && first !== "+") return null;
+	const raw = value.slice(1).trim();
+	if (!raw || raw.startsWith("builtin:") || raw.includes("*") || raw.includes("?")) return null;
+	const candidates = [raw, extensionPath(raw, agentDir), join(homedir(), ".agents", raw)];
+	return [...new Set(candidates.map((candidate) => resolve(candidate)))];
+}
+
+function markerIsEnabled(
+	entries: readonly unknown[],
+	agentDir: string,
+	targets: readonly string[],
+): boolean {
+	const wanted = new Set(targets.map((target) => resolve(target)));
+	const matched = entries.filter((entry): entry is string => {
+		if (typeof entry !== "string") return false;
+		const paths = markerPaths(entry.trim(), agentDir);
+		return !!paths && paths.some((path) => wanted.has(path));
+	});
+	let enabled = true;
+	if (matched.some((entry) => entry.trim().startsWith("!"))) enabled = false;
+	if (matched.some((entry) => entry.trim().startsWith("+"))) enabled = true;
+	if (matched.some((entry) => entry.trim().startsWith("-"))) enabled = false;
+	return enabled;
+}
+
+/** Remove only the exact markers for one target; plain registration entries stay untouched. */
+function withoutToggleMarkers(
+	entries: readonly unknown[],
+	agentDir: string,
+	targets: readonly string[],
+	prefixes: readonly string[],
+): unknown[] {
+	const wanted = new Set(targets.map((target) => resolve(target)));
+	return entries.filter((entry) => {
+		if (typeof entry !== "string") return true;
+		const value = entry.trim();
+		if (!prefixes.includes(value[0] ?? "")) return true;
+		const paths = markerPaths(value, agentDir);
+		return !paths || !paths.some((path) => wanted.has(path));
+	});
+}
+
+function togglePath(value: string): string {
+	const trimmed = value.trim();
+	if (!trimmed || trimmed.startsWith("-") || trimmed.startsWith("!") || trimmed.startsWith("+")) {
+		throw new Error("Choose an extension or skill from the list");
+	}
+	if (/[\u0000-\u001f\u007f]/u.test(trimmed)) throw new Error("That path contains control characters");
+	return trimmed;
+}
+
 export async function listPiResources(context: ManagementContext): Promise<{
 	agentDir: string;
 	extensions: PiExtensionEntry[];
@@ -793,24 +881,30 @@ export async function listPiResources(context: ManagementContext): Promise<{
 		if (builtinMatch?.[1]) {
 			const entry = extensions.find((candidate) => candidate.kind === "builtin" && candidate.label === builtinMatch[1]);
 			if (entry && path.startsWith("-")) entry.enabled = false;
+			if (entry && path.startsWith("+")) entry.enabled = true;
 			continue;
 		}
 		if (path.startsWith("-") || path.startsWith("!")) continue;
 		const clean = path.startsWith("+") ? path.slice(1) : path;
+		const resolved = extensionPath(clean, agentDir);
+		if (extensions.some((entry) => entry.path && resolve(entry.path) === resolve(resolved))) continue;
 		extensions.push({
 			id: `extension:${clean}`,
 			kind: "extension",
 			label: basename(clean),
 			source: clean,
 			version: null,
-			path: extensionPath(clean, agentDir),
-			enabled: true,
+			path: resolved,
+			enabled: markerIsEnabled(configured, agentDir, [resolved]),
 			removable: true,
 		});
 	}
 	for (const discovered of await discoveredExtensions(agentDir)) {
-		if (extensions.some((entry) => entry.path === discovered.path)) continue;
-		extensions.push(discovered);
+		if (extensions.some((entry) => entry.path && resolve(entry.path) === resolve(discovered.path ?? ""))) continue;
+		extensions.push({
+			...discovered,
+			enabled: markerIsEnabled(configured, agentDir, discovered.path ? [discovered.path] : []),
+		});
 	}
 
 	const skills: PiSkillEntry[] = [];
@@ -829,6 +923,11 @@ export async function listPiResources(context: ManagementContext): Promise<{
 			seen.add(skill.name);
 			skills.push(skill);
 		}
+	}
+	const skillSettings = Array.isArray(settings.skills) ? settings.skills : [];
+	for (const skill of skills) {
+		if (skill.source === "package") continue;
+		skill.enabled = markerIsEnabled(skillSettings, agentDir, [skill.path, dirname(skill.path)]);
 	}
 	skills.sort((left, right) => left.name.localeCompare(right.name));
 	return { agentDir, extensions, skills };
@@ -953,6 +1052,30 @@ export async function deletePiSkill(context: ManagementContext, input: { path: s
 	if (!allowed) throw new Error("That skill is outside the user skill directories. Remove its package instead.");
 	await rm(directory, { recursive: true, force: false });
 	return file;
+}
+
+export async function setPiSkillEnabled(input: {
+	agentDir: string;
+	path: string;
+	enabled: boolean;
+}): Promise<{ path: string; enabled: boolean }> {
+	const value = togglePath(input.path);
+	const target = resolve(extensionPath(value, input.agentDir));
+	const current = await readPiSettings(input.agentDir);
+	const entries = Array.isArray(current.settings.skills) ? [...current.settings.skills] : [];
+	let next = withoutToggleMarkers(
+		entries,
+		input.agentDir,
+		[target, dirname(target)],
+		input.enabled ? ["-", "!"] : ["+", "-"],
+	);
+	if (!input.enabled) next.push(`-${target}`);
+	await savePiSettings({
+		agentDir: input.agentDir,
+		revision: current.revision,
+		settings: { ...current.settings, skills: next },
+	});
+	return { path: target, enabled: input.enabled };
 }
 
 export async function readPrompt(
@@ -1167,6 +1290,42 @@ export async function removePiExtension(input: {
 		settings: { ...current.settings, extensions: next },
 	});
 	return { path: value };
+}
+
+export async function setPiExtensionEnabled(input: {
+	agentDir: string;
+	path: string;
+	enabled: boolean;
+}): Promise<{ path: string; enabled: boolean }> {
+	const value = togglePath(input.path);
+	const target = extensionPath(value, input.agentDir);
+	const current = await readPiSettings(input.agentDir);
+	const entries = extensionSettingEntries(current.settings);
+	const forced = entries.some(
+		(entry) => isExtensionString(entry) && entry.trim() === `+${value}`,
+	);
+	let next = withoutToggleMarkers(
+		entries,
+		input.agentDir,
+		[target],
+		input.enabled ? ["-", "!"] : ["+", "-"],
+	);
+	if (!input.enabled) {
+		// A "+path" was the registration itself; keep it as a plain entry so enabling works later.
+		if (
+			forced &&
+			!next.some((entry) => isExtensionString(entry) && (entry.trim() === value || entry.trim() === `+${value}`))
+		) {
+			next.push(value);
+		}
+		next.push(`-${value}`);
+	}
+	await savePiSettings({
+		agentDir: input.agentDir,
+		revision: current.revision,
+		settings: { ...current.settings, extensions: next },
+	});
+	return { path: value, enabled: input.enabled };
 }
 
 export async function setBuiltinExtension(input: {

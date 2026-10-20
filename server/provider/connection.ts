@@ -20,8 +20,6 @@ export interface PiConnectionDeps {
 		args: string[];
 		inheritEnv: string[];
 		sessionDir: string;
-		noExtensions: boolean;
-		noSkills: boolean;
 		noContextFiles: boolean;
 		noMcp: boolean;
 		reloadCommand?: boolean;
@@ -81,8 +79,8 @@ export function createPiConnection(
 		const args = buildSessionArgs({
 			persist: false,
 			...(cwd ? { sessionDir: resolveSessionDir({ option: options.sessionDir ?? deps.settings.sessionDir, processEnv }) } : {}),
-			...(deps.settings.noExtensions || options.noExtensions ? { noExtensions: true } : {}),
-			...(deps.settings.noSkills || options.noSkills ? { noSkills: true } : {}),
+			...(options.noExtensions ? { noExtensions: true } : {}),
+			...(options.noSkills ? { noSkills: true } : {}),
 			...(deps.settings.noContextFiles || options.noContextFiles ? { noContextFiles: true } : {}),
 			...(deps.settings.noMcp || options.noMcp ? { noMcp: true } : {}),
 			...(options.extraArgs ? { extraArgs: options.extraArgs } : {}),
@@ -245,8 +243,8 @@ export function createPiConnection(
 								}
 							: {}),
 						settings: {
-							noExtensions: deps.settings.noExtensions || options.noExtensions,
-							noSkills: deps.settings.noSkills || options.noSkills,
+							...(options.noExtensions ? { noExtensions: true } : {}),
+							...(options.noSkills ? { noSkills: true } : {}),
 							noContextFiles: deps.settings.noContextFiles || options.noContextFiles,
 							noMcp: deps.settings.noMcp || options.noMcp,
 							reloadCommand: deps.settings.reloadCommand !== false,

@@ -24,6 +24,7 @@ export const piSkillEntrySchema = z.object({
 	description: z.string(),
 	path: z.string(),
 	source: z.enum(["user", "agents", "package", "config", "unknown"]),
+	enabled: z.boolean(),
 	removable: z.boolean(),
 });
 
@@ -59,6 +60,18 @@ export const piRemoveExtensionRpc = defineRpc({
 	name: "paseo-pi.remove-extension",
 	input: z.object({ path: z.string().trim().min(1).max(4_096) }),
 	output: z.object({ path: z.string() }),
+});
+
+export const piSetExtensionEnabledRpc = defineRpc({
+	name: "paseo-pi.set-extension-enabled",
+	input: z.object({ path: z.string().trim().min(1).max(4_096), enabled: z.boolean() }),
+	output: z.object({ path: z.string(), enabled: z.boolean() }),
+});
+
+export const piSetSkillEnabledRpc = defineRpc({
+	name: "paseo-pi.set-skill-enabled",
+	input: z.object({ path: z.string().trim().min(1).max(4_096), enabled: z.boolean() }),
+	output: z.object({ path: z.string(), enabled: z.boolean() }),
 });
 
 export const piSetBuiltinExtensionRpc = defineRpc({

@@ -24,6 +24,8 @@ import {
 	piSaveProviderRpc,
 	piSaveSettingsRpc,
 	piSetBuiltinExtensionRpc,
+	piSetExtensionEnabledRpc,
+	piSetSkillEnabledRpc,
 	piUpdatePackageRpc,
 	piWritePromptRpc,
 } from "./shared/management";
@@ -51,6 +53,8 @@ import {
 	savePiSettings,
 	saveProvider,
 	setBuiltinExtension,
+	setPiExtensionEnabled,
+	setPiSkillEnabled,
 	updatePiPackages,
 	writePrompt,
 } from "./server/management";
@@ -113,7 +117,21 @@ export default function contribute(server: PluginServerContext) {
 			enabled: input.enabled,
 		}),
 	);
+	server.handle(piSetExtensionEnabledRpc, async (input) =>
+		setPiExtensionEnabled({
+			agentDir: (await context()).agentDir,
+			path: input.path,
+			enabled: input.enabled,
+		}),
+	);
 	server.handle(piCreateSkillRpc, async (input) => createPiSkill(await context(), input));
+	server.handle(piSetSkillEnabledRpc, async (input) =>
+		setPiSkillEnabled({
+			agentDir: (await context()).agentDir,
+			path: input.path,
+			enabled: input.enabled,
+		}),
+	);
 	server.handle(piInspectSkillSourceRpc, async (input) => {
 		const management = await context();
 		const resources = await listPiResources(management);

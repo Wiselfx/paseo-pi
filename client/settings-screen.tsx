@@ -75,7 +75,7 @@ export function PiSettingsScreen({ theme }: PluginSurfaceProps) {
 				key={`args-${state.revision}`}
 				initialValue={argsText}
 				onChangeText={setArgsText}
-				placeholder="--no-extensions"
+				placeholder="--provider Zen"
 			/>
 			<SettingsInput
 				label="Session directory"
@@ -93,17 +93,9 @@ export function PiSettingsScreen({ theme }: PluginSurfaceProps) {
 				onChangeText={setEnvText}
 				placeholder="OPENAI_API_KEY, ANTHROPIC_API_KEY"
 			/>
-			<SettingsSwitch
-				label="Use extensions"
-				hint="Extensions, including pi's built-in ones"
-				value={!values.noExtensions}
-				onValueChange={(enabled) => update({ noExtensions: !enabled })}
-			/>
-			<SettingsSwitch
-				label="Use skills"
-				value={!values.noSkills}
-				onValueChange={(enabled) => update({ noSkills: !enabled })}
-			/>
+			<Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+				Turn individual extensions and skills on or off in Extensions &amp; skills. Changes apply to new sessions.
+			</Text>
 			<SettingsSwitch
 				label="Read context files"
 				hint="AGENTS.md and CLAUDE.md"

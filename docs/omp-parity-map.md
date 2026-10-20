@@ -47,8 +47,8 @@ pi storage used by this plugin:
 | Add models | Select existing catalog models through model roles / enabledModels; no add-model form | Fetch the provider's own `/models`, filter and select, then add in one write; add/edit/delete a model per provider; raw JSON retains advanced fields | New (beyond omp) |
 | Plugins/extensions install | Install from source, enable, disable, upgrade, uninstall, inspect config | Install package from npm/git/URL/local via `pi install`; update one/all via `pi update`; remove via `pi remove`; add/remove extension paths in settings | Covered |
 | Plugin config | Per-plugin settings incl. secrets, write-only | Resource filters and all other package options live in the raw `settings.json` editor; no per-package form | Partial |
-| Package enable/disable | Toggle a plugin without uninstalling | No pi equivalent: remove the package, or filter its resources in settings. Built-in extensions can be enabled/disabled | Partial (deliberate) |
-| Skills | No skill manager in omp plugin | List user/agents/package skills; install from a GitHub file or repository; write a `SKILL.md` by hand; delete user/agents skills | New (beyond omp) |
+| Package enable/disable | Toggle a plugin without uninstalling | No pi equivalent: remove the package, or filter its resources in settings. Extensions and skills have per-item switches; built-ins have their own | Partial (deliberate) |
+| Skills | No skill manager in omp plugin | List user/agents/package skills; install from a GitHub file or repository; write a `SKILL.md` by hand; switch or delete each user/agents skill | New (beyond omp) |
 | Prompt | No system-prompt editor in omp plugin | Prompt tab edits `APPEND_SYSTEM.md` or `SYSTEM.md`, with revision checks and clear | New (beyond omp) |
 | Session history | `Sessions` composer pill: recent prompts for one cwd, read-only, 20 shown | Sessions tab: list by cwd/query, refresh, show title/id/path; delete removes the Paseo agent and the pi file | Covered + new delete |
 | Diagnostics | Provider health, binary status/path, process cleanup, capabilities | Overview: availability, version, model count, catalog, diagnostic, config/session paths; Refresh | Partial; no binary health or process cleanup |
@@ -66,8 +66,9 @@ pi storage used by this plugin:
 ## Plugin RPCs added for the pi surface
 
 `paseo-pi.list-resources`, `install-package`, `update-package`, `remove-package`,
-`add-extension`, `remove-extension`, `set-builtin-extension`, `inspect-skill-source`,
-`install-skill-source`, `create-skill`, `delete-skill`, `read-settings`, `save-settings`,
+`add-extension`, `remove-extension`, `set-builtin-extension`, `set-extension-enabled`,
+`inspect-skill-source`,
+`install-skill-source`, `create-skill`, `delete-skill`, `set-skill-enabled`, `read-settings`, `save-settings`,
 `read-models`, `fetch-models`, `add-models`, `save-provider`, `delete-provider`, `save-model`,
 `delete-model`, `save-models-json`, `read-prompt`, `write-prompt`, `list-sessions`,
 `delete-session`.
