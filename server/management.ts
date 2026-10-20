@@ -5,7 +5,6 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
-import type { PaseoApi } from "@getpaseo/client";
 import {
 	PI_MODELS_SECRET_MASK,
 	type PiExtensionEntry,
@@ -29,20 +28,34 @@ const MAX_MODELS_BYTES = 2_000_000;
 const MAX_SKILL_FILES = 400;
 const BUILTIN_EXTENSIONS = ["mcp", "llama.cpp", "codemode", "tool-search"] as const;
 
+/**
+ * The small part of Paseo's client API used by the management RPCs.
+ *
+ * Kept structural on purpose: a type-only import from `@getpaseo/client` makes Paseo's plugin
+ * installer look for that peer dependency in a fresh checkout, where it is not installed.
+ */
+export interface PaseoApiLike {
+	agents: {
+		list(input: {
+			filter: { includeArchived: boolean; includeBackground: boolean };
+		}): Promise<{ entries?: readonly unknown[] }>;
+	};
+}
+
 export interface ManagementContext {
 	agentDir: string;
 	sessionDir: string;
 	settings: PiSettings;
 	env: NodeJS.ProcessEnv;
 	/** Provided by the plugin host so deleting a session can remove its Paseo record too. */
-	paseo?: PaseoApi;
+	paseo?: PaseoApiLike;
 }
 
 export function buildManagementContext(input: {
 	settings: PiSettings;
 	sessionDir: string;
 	env?: NodeJS.ProcessEnv;
-	paseo?: PaseoApi;
+	paseo?: PaseoApiLike;
 }): ManagementContext {
 	const env = input.env ?? process.env;
 	return {
