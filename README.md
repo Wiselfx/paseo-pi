@@ -10,6 +10,8 @@ built-in `pi` provider; this plugin adds the management surface around it:
   editor are shown as `__PI_SECRET__` and restored when saved.
 - **Prompt** — edit `APPEND_SYSTEM.md`, or replace the system prompt with `SYSTEM.md`.
 - **Sessions** — list pi session files by working directory or query, refresh, and delete.
+- **Reload** — `/reload` in a pi-plugin chat, or the **Reload** composer pill, reloads pi's
+  settings, models, extensions, skills, prompts and context files in place.
 - **Settings** — edit common settings or the full `settings.json`.
 
 The plugin registers a provider (`pi-plugin`, label **Pi Plugin**) with Paseo. It starts one
@@ -36,8 +38,8 @@ command palette.
 ## Configuration
 
 Launch options live in the plugin's `pi-launch` settings screen: command, command-prefix args,
-inherited environment, session directory, and `--no-*` resource toggles. These are host-scoped; a
-per-agent `providerOptions` override can replace them for one agent.
+inherited environment, session directory, the `--no-*` resource toggles, and the `/reload` command
+switch. These are host-scoped; a per-agent `providerOptions` override can replace them for one agent.
 
 pi's own files are managed directly:
 

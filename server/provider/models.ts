@@ -48,7 +48,10 @@ export function splitModelId(value: string): { provider: string; modelId: string
 	return { provider: value.slice(0, index), modelId: value.slice(index + 1) };
 }
 
-export function toProviderModel(model: PiWireModel, levels = defaultThinkingLevels(model)): ProviderModel {
+export function toProviderModel(
+	model: PiWireModel,
+	levels: readonly string[] = defaultThinkingLevels(model),
+): ProviderModel {
 	const options = thinkingOptionsFor(levels);
 	return {
 		id: publicModelId(model),

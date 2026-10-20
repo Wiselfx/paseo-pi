@@ -65,6 +65,7 @@ export function buildSessionArgs(input: {
 	sessionDir?: string;
 	systemPrompt?: string;
 	title?: string;
+	extensionPaths?: readonly string[];
 	extraArgs?: readonly string[];
 	noExtensions?: boolean;
 	noSkills?: boolean;
@@ -86,6 +87,8 @@ export function buildSessionArgs(input: {
 	if (input.noMcp) args.push("--no-mcp");
 	const prompt = input.systemPrompt?.trim();
 	if (prompt) args.push("--append-system-prompt", prompt);
+	// Explicit paths survive --no-extensions, which is what lets /reload exist at all.
+	for (const path of input.extensionPaths ?? []) args.push("--extension", path);
 	if (input.extraArgs?.length) args.push(...input.extraArgs);
 	return args;
 }

@@ -132,10 +132,14 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 18. **Resume is a file path.** `--session <absolute .jsonl>` resumes; `--no-session` disables
     persistence for a probe. A persisted Paseo session must set `persist: true`, and the plugin
     verifies pi returned the same `sessionId`.
-19. **There is no pi session-reload RPC.** "Reload sessions" means re-reading session files from
-    disk. Do not promise live session switching through it.
+19. **There is no pi session-reload RPC, but extension commands get `session.reload()`.** RPC mode
+    dispatches no reload command; `commandContextActions.reload` in `rpc-mode.ts` hands it to
+    `AgentSession.reload()`, so a session must load an extension that registers the command. The
+    plugin writes one (`server/provider/reload-extension.ts`) and passes it as an explicit
+    `--extension`, which pi keeps even under `--no-extensions`. "Reload sessions" in the management
+    tab still just re-reads the files.
 20. **A running session keeps its loaded extensions.** Toggling extensions or built-ins affects new
-    sessions only.
+    sessions only, unless that session runs `/reload`.
 21. **Revisions are per file.** Every read-modify-write carries a SHA-256 of the file text
     (`"missing"` when absent). Any external edit between read and save fails with "changed on
     disk"; the UI must reload rather than retry blindly.
@@ -197,7 +201,8 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 
 ## 4. Dead ends, deliberate omissions, unused code
 
-- **No session reload over RPC.** pi has no such command; the Sessions tab refreshes the file list.
+- **No reload request in pi's RPC protocol.** The command only exists as an extension command;
+  the plugin bridges it with a generated extension. The Sessions tab still refreshes the file list.
 - **No per-session MCP servers, tool policies, permissions, modes, or structured output.** pi
   configures MCP in `mcp.json`; the provider rejects per-session MCP and tool policies and reports
   unsupported `outputSchema`.
@@ -228,6 +233,8 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 | `@getpaseo/plugin` 0.12.0 — `dist/server/provider.d.ts` | 0.12.0 | `PROVIDER_PROTOCOL_VERSION`, capability list, `ProviderInput`/`ProviderEvent`, `ProviderSessionConfig`, persistence shape. |
 | `@getpaseo/plugin` 0.12.0 — `dist/client.d.ts`, `dist/client/ui.d.ts` | 0.12.0 | `PluginClientContext`, `useRpc`, `useSettings`, settings-screen primitives, sidebar/command-center APIs. |
 | `@getpaseo/server` — `dist/server/server/agent/providers/pi/` | 0.12.0 | How Paseo's built-in pi provider works (agent loop, CLI runtime, history mapping, rewind, usage polling, extension host). |
+| `/handoff/Port/pi/packages/coding-agent/src/modes/rpc/rpc-mode.ts`, `src/core/agent-session.ts`, `src/core/extensions/types.ts` | `5c1736f` | The command dispatch list, `commandContextActions.reload`, `AgentSession.reload()` and the extension command context. |
+| `agegr/pi-web` @ `/tmp/pi-web` | `7c0778a` | Precedent for the same reload path over the agent session (`hooks/useAgentSession.ts`, `case "reload"`). |
 | `/handoff/Port/pi/packages/coding-agent/docs/rpc.md` | `5c1736f` | RPC mode overview, lifecycle, minimal client, anchors to the command docs. |
 | `.../docs/rpc-commands.md` | `5c1736f` | Every command payload: `prompt`, `steer`, `abort`, `get_state`, `get_messages`, `set_model`, `get_available_models`, `set_thinking_level`, `get_available_thinking_levels`, `get_session_stats`, `get_commands`, session commands. |
 | `.../docs/json.md` | `5c1736f` | Event names and fields (`agent_start`, `agent_settled`, `message_start/end`, `tool_execution_*`, `compaction_*`, `auto_retry_*`, `session_info_changed`, `thinking_level_changed`), LF framing. |

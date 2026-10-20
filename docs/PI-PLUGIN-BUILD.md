@@ -19,7 +19,7 @@ stated otherwise.
 | `index.client.tsx` | Client entry: sidebar row, management screen, launch-settings screen, command-center items. |
 | `shared/` | Zod contracts shared by client and server; no runtime state. |
 | `shared/constants.ts` | IDs: plugin `paseo-pi`, provider `pi-plugin`, screen `pi-config`, launch settings `paseo-pi-launch`, persistence version `1`. |
-| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, four `no*` toggles). |
+| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, four `no*` toggles, `reloadCommand`). |
 | `shared/rpc.ts` | Status/refresh RPCs. |
 | `shared/management.ts` | One RPC per management operation, all schemas and limits, `PI_MODELS_SECRET_MASK`. |
 | `server/paths.ts` | Resolves the pi agent directory. |
@@ -28,6 +28,7 @@ stated otherwise.
 | `server/provider/rpc.ts` | One `pi --mode rpc` child, JSONL framing, request/response and events. |
 | `server/provider/session.ts` | Session state machine, pi command calls, timeline translation. |
 | `server/provider/options.ts` | Launch precedence and RPC argument construction. |
+| `server/provider/reload-extension.ts` | Generates the tiny extension that exposes pi's `/reload` over RPC. |
 | `server/provider/models.ts` | Wire model to `ProviderModel`/usage mapping. |
 | `server/provider/timeline.ts` | pi message/tool content to Paseo timeline details. |
 | `server/sessions.ts` | Session file discovery, summaries, persistence parsing. |
@@ -35,8 +36,9 @@ stated otherwise.
 | `server/pi-status.ts` | Host status probe and model catalog for the Overview tab. |
 | `client/manage/` | The management panel, split by tab. |
 | `client/settings-screen.tsx` | The host-scoped `pi-launch` settings screen. |
+| `client/reload-pill.tsx` | The **Reload** composer pill for pi-plugin agents. |
 | `tests/` | Vitest unit tests (`tests/fixtures/fake-pi.mjs` is the RPC test double). |
-| `scripts/` | Live smoke scripts. |
+| `scripts/` | Live smoke scripts, including `smoke-reload.ts`. |
 
 `client/pi-screen.tsx` is an unused early prototype; the live panel is `client/manage/screen.tsx`.
 
@@ -134,12 +136,16 @@ invoked with.
 
 Per-agent provider options (`PiProviderOptionsSchema`) are `command`, `args`, `env`, `inheritEnv`,
 `sessionDir`, `noExtensions`, `noSkills`, `noContextFiles`, `noMcp`, `extraArgs`. Unknown keys are
-stripped. The host `no*` toggles are OR-ed with the per-agent ones.
+stripped. The host `no*` toggles are OR-ed with the per-agent ones, and the host `reloadCommand`
+toggle (default on) controls the generated extension.
 
 `buildSessionArgs` emits, in order: `--mode rpc`, `--session <abs>` (resume) or `--no-session`,
 `--session-dir`, `--name <title>`, the four `--no-*` flags, `--append-system-prompt <text>` when a
-system prompt was supplied, then `extraArgs` last. Launch args are prepended before all of this by
-the connection.
+system prompt was supplied, one `--extension <path>` per `extensionPaths` entry (the reload bridge),
+then `extraArgs` last. Launch args are prepended before all of this by the connection.
+
+An explicit `--extension` is loaded even with `--no-extensions`, which is why the reload bridge does
+not depend on the user's extension settings.
 
 The agent directory comes from `server/paths.ts`: `PI_CODING_AGENT_DIR`, then legacy
 `PI_CONFIG_DIR`, then `~/.pi/agent`. The session directory comes from
@@ -336,10 +342,39 @@ child; it caches for 20 s keyed by the settings, agent directory, session direct
 mtime/size of `settings.json` and `models.json`, so a management save invalidates it immediately.
 `paseo-pi.refresh` clears the cache and re-probes; that is what the Overview Refresh button calls.
 
-"Reload sessions" in the UI re-reads the session files. pi's RPC has no session-reload command, so
-this is the meaning of reload for this harness.
+"Reload sessions" in the UI re-reads the session files; it is unrelated to pi's `/reload`, which
+reloads resources inside a live session (next section).
 
-### 3.7 Overview
+### 3.7 Reload
+
+pi's RPC mode has no reload request, but extension commands run inside the session and receive
+`ctx.reload()`. The provider ships that bridge:
+
+- `server/provider/reload-extension.ts` holds a one-command extension (`registerCommand("reload")`
+  → `ctx.reload()`) and writes it to
+  `<tmpdir>/paseo-pi/reload-command-<sha256[0:12]>.mjs` (directory 0700, file 0600, one file per
+  content hash). Every child gets it through `--extension`, unless `reloadCommand` is off.
+- Typing `/reload` in a pi-plugin chat is intercepted in `PiSession.prompt` (steer messages are
+  passed through untouched) and sent to the child as an RPC `prompt` with the message `/reload`.
+  The provider requires `disposition: "handled"`, drops the queued user entry, and emits a
+  `completed` prompt result, so no assistant turn appears.
+- The **Reload** composer pill appears for every idle pi-plugin agent
+  (`client/reload-pill.tsx`); it simply sends `/reload` to that agent, and is disabled while the
+  agent runs.
+- `PiSession.reload` refuses while streaming (`Wait for the current turn to finish before
+  reloading`) and when the command is unavailable (for example `reloadCommand: false`,
+  `The pi reload command is not available for this session`).
+
+After pi reloads, the provider re-reads `get_state`, thinking levels, `get_available_models` and
+`get_commands`, emits `session.config`, `session.commands`, then a `Reloaded pi resources` notice.
+pi itself reloads settings (including `defaultTools`), API providers, and the resource loader:
+extensions, skills, prompts, themes and context files. That is the same path as the interactive
+`/reload`, and it requires an idle session.
+
+The timeline gets the `/reload` user message and the notice, tied to a synthetic `command-<id>`
+turn. A session opened before a plugin upgrade has no bridge; archive and reopen it.
+
+### 3.8 Overview
 
 `client/manage/overview.tsx` shows command, version, availability, model count, session directory,
 agent directory, the model catalog from `piStatus`, and shortcuts into the other tabs.
@@ -370,13 +405,15 @@ NODE_OPTIONS= ./node_modules/.bin/vitest run
 | Test file | Covers |
 |---|---|
 | `tests/rpc.test.ts` | Framing (split chunk, two frames, CRLF), response by id, event order, malformed line diagnostic, failed response, timeout and exit. Uses `tests/fixtures/fake-pi.mjs`. |
-| `tests/options.test.ts` | Launch precedence, env inheritance by name, empty command rejection, session args order (resume absolute, toggles, title, prompt, extra args), blank prompt omitted. |
+| `tests/options.test.ts` | Launch precedence, env inheritance by name, empty command rejection, session args order (resume absolute, toggles, title, prompt, `--extension`, extra args), blank prompt omitted. |
 | `tests/models.test.ts` | Model id split at the first slash, thinking ladders, wire model mapping, usage mapping. |
 | `tests/timeline.test.ts` | Text/thinking/tool-call blocks, typed tool details (shell/read/edit/write/search), plain-text fallback. |
 | `tests/sessions.test.ts` | Listing order and titles, cwd/query filters, limit, missing directory, persistence acceptance/rejection, session directory precedence including custom agent dirs. |
+| `tests/reload.test.ts` | The generated extension is private (`0600`) and calls `ctx.reload()`, the path is stable, and only the bare `/reload` is recognized. |
+| `tests/reload-pill.test.ts` | The pill appears only for idle pi-plugin agents, sends `/reload`, disables while running, re-scopes on a workspace move, and cleans up. |
 | `tests/management.test.ts` | Settings read/save/stale revision, resource listing, provider/model CRUD without key disclosure, raw JSON revisions, secret masking/restore, prototype-named providers, duplicate/missing providers, model limit clearing, skill create/delete, prompt write/clear, session listing and confined delete. |
 
-Current result: **6 files, 38 tests passed**, `tsc --noEmit` exit 0.
+Current result: **8 files, 46 tests passed**, `tsc --noEmit` exit 0.
 
 Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARGS`,
 `PI_SMOKE_DIR`, `PI_SMOKE_MODEL`, `PI_SMOKE_CWD`):
@@ -387,7 +424,8 @@ Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARG
 | `smoke-session.ts` | `createPiConnection` end to end: open, prompt, assistant timeline item, persistence. |
 | `smoke-resume.ts` | Resuming the newest smoke session file and replaying history. |
 | `smoke-list.ts` | `listPiSessions` finds files in the smoke directory. |
-| `smoke-paseo.ts` | Against a running daemon: provider availability, catalog for a chosen model, an agent that finishes with a visible reply. |
+| `smoke-reload.ts` | Against a real pi child with a throwaway agent dir: `/reload` is a listed command, picks up a skill created after open, and is refused when `reloadCommand` is off. |
+| `smoke-paseo.ts` | Against a running daemon: provider availability, catalog for a chosen model, an agent that finishes with a visible reply, and (for `pi-plugin`) the listed reload command plus its notice. |
 
 Run with `NODE_OPTIONS= bun scripts/smoke-*.ts`. `smoke-paseo` defaults to
 `ws://127.0.0.1:39085/ws`, provider `pi-plugin`, and model `Zen/deepseek-v4.1-flash-free`; set
@@ -395,9 +433,9 @@ Run with `NODE_OPTIONS= bun scripts/smoke-*.ts`. `smoke-paseo` defaults to
 
 Browser QA on the dev daemon: open
 `http://127.0.0.1:39085/h/<server>/plugin/paseo-pi/surface/pi-config`, then check tabs, command
-center deep links (`?param.tab=models`), the launch-settings save/revert cycle, the raw models
-editor masks, the session list and delete confirmation, and the console (only Paseo's own Expo
-warnings should appear).
+center deep links (`?param.tab=models`), the launch-settings save/revert cycle (including the
+Reload command switch), the raw models editor masks, the session list and delete confirmation, the
+Reload pill on a pi-plugin agent, and the console (only Paseo's own Expo warnings should appear).
 
 An intermittent upstream 400 (`chat message role 'developer' is not supported by the router gRPC
 frontend`) can kill a run and leave an empty assistant message with `stopReason: error` in the
@@ -421,6 +459,9 @@ session JSONL. It is provider-side; retry the same step once before investigatin
 | Delete rejects a file | Path outside the session dir | Realpath of both sides | `deleteManagedSession`, `inside` |
 | Raw editor shows `__PI_SECRET__` | Masking working as designed | Save restores it unless you edited the value | `redactModelsSecrets` / `restoreModelsSecrets` |
 | Status/model count stale | Probe cache | Press Refresh (clears the cache) | `server/pi-status.ts` |
+| `/reload` says the command is unavailable | `reloadCommand` off or the child predates the bridge | The launch settings switch; archive and reopen an old session | `session.ts` `reload`, `reload-extension.ts` |
+| `/reload` is ignored while a turn runs | Guard by design (same as pi's TUI) | Wait for idle, then send it again | `PiSession.reload` |
+| Reload did not pick up a change | What pi reloads vs what you edited | Skills, extensions, prompts, themes and settings reload; `models.json` is re-read too | `refreshAfterReload` |
 
 Deeper reference: `docs/omp-parity-map.md` maps each management feature to the equivalent
 `paseo-omp` surface; `README.md` is the short form; `OVERVIEW.md` is the file-level summary.

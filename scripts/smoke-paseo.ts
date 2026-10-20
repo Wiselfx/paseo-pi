@@ -38,6 +38,23 @@ try {
 	if (!serialized.includes("ready")) fail("assistant reply did not reach the timeline");
 	if (serialized.toLowerCase().includes("request.failed")) fail("the plugin reported a failed request");
 	console.log(`OK agent: ${agent.id} finished (${result.status}) with a visible reply`);
+
+	if (provider === "pi-plugin") {
+		const commands = await agent.commands();
+		if (!commands.commands.some((command) => command.name === "reload")) {
+			fail("the live session does not list the reload command");
+		}
+		await agent.send("/reload");
+		const deadline = Date.now() + 30_000;
+		let reloaded = false;
+		while (!reloaded && Date.now() < deadline) {
+			const page = await agent.timeline.refetch({ limit: 20 });
+			reloaded = JSON.stringify(page).includes("Reloaded pi resources");
+			if (!reloaded) await new Promise((resolve) => setTimeout(resolve, 500));
+		}
+		if (!reloaded) fail("reload produced no notice");
+		console.log("OK reload: command listed, notice arrived");
+	}
 } catch (error) {
 	console.error(error);
 	fail("Paseo smoke threw");

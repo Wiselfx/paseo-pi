@@ -24,6 +24,7 @@ export interface PiConnectionDeps {
 		noSkills: boolean;
 		noContextFiles: boolean;
 		noMcp: boolean;
+		reloadCommand?: boolean;
 	};
 	processEnv?: NodeJS.ProcessEnv;
 	spawn?: (options: ConstructorParameters<typeof PiRpc>[0], diagnostic?: (text: string) => void) => PiRpc;
@@ -227,8 +228,10 @@ export function createPiConnection(
 							noSkills: deps.settings.noSkills || options.noSkills,
 							noContextFiles: deps.settings.noContextFiles || options.noContextFiles,
 							noMcp: deps.settings.noMcp || options.noMcp,
+							reloadCommand: deps.settings.reloadCommand !== false,
 							...(options.extraArgs ? { extraArgs: options.extraArgs } : {}),
 						},
+						diagnostic: deps.diagnostic,
 					});
 					if (closed || controller.signal.aborted) {
 						await session.close();

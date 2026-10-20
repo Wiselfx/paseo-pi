@@ -11,6 +11,7 @@ export const piSettingsSchema = z.object({
 	noSkills: z.boolean().default(false),
 	noContextFiles: z.boolean().default(false),
 	noMcp: z.boolean().default(false),
+	reloadCommand: z.boolean().default(true),
 });
 
 export type PiSettings = z.infer<typeof piSettingsSchema>;

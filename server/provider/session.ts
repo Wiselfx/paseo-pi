@@ -22,6 +22,7 @@ import {
 	type PiWireModel,
 } from "./models";
 import { buildSessionArgs } from "./options";
+import { isReloadCommand, reloadCommandExtensionPath } from "./reload-extension";
 import { PiRpc, PiRpcError } from "./rpc";
 import { parsePersistence } from "../sessions";
 import {
@@ -62,7 +63,31 @@ export interface PiSessionDeps {
 		noSkills?: boolean;
 		noContextFiles?: boolean;
 		noMcp?: boolean;
+		reloadCommand?: boolean;
 		extraArgs?: string[];
+	};
+	diagnostic?: (message: string) => void;
+}
+
+/** The config state pi's state and model list describe, including per-model thinking levels. */
+function configStateFor(
+	state: { model?: PiWireModel; thinkingLevel?: string },
+	wireModels: readonly PiWireModel[],
+	levels: readonly string[],
+): ProviderConfigState {
+	const current = state.model ? publicModelId(state.model) : "";
+	return {
+		...(state.model ? { model: current } : {}),
+		...(state.thinkingLevel ? { thinkingOption: state.thinkingLevel } : {}),
+		models: wireModels.map((model) =>
+			toProviderModel(
+				model,
+				publicModelId(model) === current ? levels : defaultThinkingLevels(model),
+			),
+		),
+		modes: [],
+		thinkingOptions: thinkingOptionsFor(levels),
+		settings: [],
 	};
 }
 
@@ -81,6 +106,20 @@ function isWireMessage(value: unknown): value is WireMessage {
 	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * `--extension` for the generated `/reload` command. An explicit path loads even with
+ * `--no-extensions`, so the host setting is the only off switch.
+ */
+async function reloadExtensionArgs(deps: PiSessionDeps): Promise<string[]> {
+	if (deps.settings?.reloadCommand === false) return [];
+	try {
+		return [await reloadCommandExtensionPath()];
+	} catch (error) {
+		deps.diagnostic?.(`reload command extension unavailable: ${errorMessage(error)}`);
+		return [];
+	}
+}
+
 export class PiSession {
 	private readonly listeners: Array<() => void> = [];
 	private activeTurn: ActiveTurn | null = null;
@@ -93,6 +132,8 @@ export class PiSession {
 	private config: ProviderConfigState;
 	private persistence: ProviderPersistence | undefined;
 	private replaying = false;
+	private reloadExtensionPath: string | undefined;
+	private commands: ProviderCommand[] = [];
 
 	private constructor(
 		readonly id: string,
@@ -144,12 +185,14 @@ export class PiSession {
 			throw new Error("A persisted Pi session requires persist: true");
 		}
 		const persist = config.persist === true;
+		const extensionPaths = await reloadExtensionArgs(deps);
 		const args = buildSessionArgs({
 			persist,
 			...(persisted?.sessionFile ? { sessionFile: persisted.sessionFile } : {}),
 			...(deps.sessionDir ? { sessionDir: deps.sessionDir } : {}),
 			...(config.systemPrompt ? { systemPrompt: config.systemPrompt } : {}),
 			...(config.title ? { title: config.title } : {}),
+			...(extensionPaths.length ? { extensionPaths } : {}),
 			...(deps.settings?.noExtensions ? { noExtensions: true } : {}),
 			...(deps.settings?.noSkills ? { noSkills: true } : {}),
 			...(deps.settings?.noContextFiles ? { noContextFiles: true } : {}),
@@ -193,22 +236,8 @@ export class PiSession {
 			const levels = await fetchLevels(rpc).catch(() =>
 				defaultThinkingLevels(finalState.model),
 			);
-			const models = wireModels.map((model) =>
-				toProviderModel(
-					model,
-					publicModelId(model) === (finalState.model ? publicModelId(finalState.model) : "")
-						? levels
-						: defaultThinkingLevels(model),
-				),
-			);
-			const configState: ProviderConfigState = {
-				...(finalState.model ? { model: publicModelId(finalState.model) } : {}),
-				...(finalState.thinkingLevel ? { thinkingOption: finalState.thinkingLevel } : {}),
-				models,
-				modes: [],
-				thinkingOptions: thinkingOptionsFor(levels),
-				settings: [],
-			};
+			const configState = configStateFor(finalState, wireModels, levels);
+			const models = [...configState.models];
 			const persistence: ProviderPersistence | undefined =
 				persist && finalState.sessionFile
 					? {
@@ -231,6 +260,7 @@ export class PiSession {
 				finalState.sessionFile,
 				finalState.sessionId,
 			);
+			session.reloadExtensionPath = extensionPaths[0];
 			deps.emit({
 				type: "session.opened",
 				requestId: input.requestId,
@@ -246,6 +276,7 @@ export class PiSession {
 				await session.replayHistory();
 			}
 			const commands = await session.fetchCommands();
+			session.commands = commands;
 			deps.emit({ type: "session.commands", sessionId: input.sessionId, commands });
 			deps.emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });
 			return session;
@@ -278,6 +309,10 @@ export class PiSession {
 			return;
 		}
 		const commandName = "prompt";
+		if (prompt.delivery !== "steer" && isReloadCommand(message)) {
+			await this.reload(input);
+			return;
+		}
 		if (prompt.delivery === "steer") {
 			try {
 				await this.rpc.request("steer", { message, ...(images.length ? { images } : {}) });
@@ -309,6 +344,11 @@ export class PiSession {
 			)) as { disposition?: string } | undefined;
 			const disposition = data?.disposition ?? "started";
 			if (disposition === "handled") {
+				// A command (not a message) produced no user turn: drop the pending entry so a
+				// later message cannot pair with this clientMessageId.
+				this.pendingUsers = this.pendingUsers.filter(
+					(pending) => pending.clientMessageId !== prompt.clientMessageId,
+				);
 				this.emitPromptResult(input, { type: "completed" });
 				return;
 			}
@@ -329,6 +369,64 @@ export class PiSession {
 				error: { message: errorMessage(error) },
 			});
 		}
+	}
+
+	/**
+	 * Runs pi's own `/reload` through the generated extension command. pi's reload refuses to run
+	 * mid-turn, so a busy session answers with a failed prompt instead of touching the runtime.
+	 */
+	private async reload(input: SessionPromptInput): Promise<void> {
+		const unavailable = !this.reloadExtensionPath || !this.commands.some((c) => c.name === "reload");
+		const message = unavailable
+			? "The pi reload command is not available for this session"
+			: this.isStreaming()
+				? "Wait for the current turn to finish before reloading"
+				: undefined;
+		if (message) {
+			this.notice("warning", "Reload", message);
+			this.emitPromptResult(input, { type: "failed", error: { message } });
+			return;
+		}
+		try {
+			const data = (await this.rpc.request("prompt", { message: "/reload" }, 60_000)) as
+				| { disposition?: string }
+				| undefined;
+			if ((data?.disposition ?? "started") !== "handled") {
+				throw new Error("pi did not run the reload command");
+			}
+			this.emitPromptResult(input, { type: "completed" });
+			await this.refreshAfterReload();
+		} catch (error) {
+			const detail = errorMessage(error);
+			this.notice("error", "Reload failed", detail);
+			this.emitPromptResult(input, { type: "failed", error: { message: detail } });
+		}
+	}
+
+	/** Reload can change models, thinking levels, extensions and skills; tell the host about it. */
+	private async refreshAfterReload(): Promise<void> {
+		const state = (await this.rpc.request("get_state")) as {
+			model?: PiWireModel;
+			thinkingLevel?: string;
+		};
+		const levels = await fetchLevels(this.rpc).catch(() => defaultThinkingLevels(state.model));
+		const wireModels = await fetchModels(this.rpc).catch(() => undefined);
+		this.config = wireModels
+			? configStateFor(state, wireModels, levels)
+			: {
+					...this.config,
+					...(state.model ? { model: publicModelId(state.model) } : {}),
+					...(state.thinkingLevel ? { thinkingOption: state.thinkingLevel } : {}),
+					thinkingOptions: thinkingOptionsFor(levels),
+				};
+		this.deps.emit({ type: "session.config", sessionId: this.id, config: this.config });
+		this.commands = await this.fetchCommands();
+		this.deps.emit({ type: "session.commands", sessionId: this.id, commands: this.commands });
+		this.notice(
+			"info",
+			"Reloaded pi resources",
+			"Settings, models, extensions, skills, prompts, themes and context files were reloaded.",
+		);
 	}
 
 	async configure(input: SessionConfigureInput): Promise<void> {

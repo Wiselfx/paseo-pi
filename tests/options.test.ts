@@ -54,6 +54,7 @@ describe("buildSessionArgs", () => {
 				systemPrompt: "  Be brief.  ",
 				noExtensions: true,
 				noMcp: true,
+				extensionPaths: ["/tmp/reload.mjs"],
 				extraArgs: ["--provider", "Zen"],
 			}),
 		).toEqual([
@@ -67,6 +68,8 @@ describe("buildSessionArgs", () => {
 			"--no-mcp",
 			"--append-system-prompt",
 			"Be brief.",
+			"--extension",
+			"/tmp/reload.mjs",
 			"--provider",
 			"Zen",
 		]);

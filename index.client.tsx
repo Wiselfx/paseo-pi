@@ -1,6 +1,7 @@
 import type { PluginClientContext, PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { PI_SETTINGS_SCREEN_ID } from "./shared/constants";
+import { contributeReloadComposerPills } from "./client/reload-pill";
 import { PiManageScreen } from "./client/manage/screen";
 import { PiSettingsScreen } from "./client/settings-screen";
 
@@ -18,6 +19,7 @@ function PiSidebarItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
 }
 
 export default function contribute(client: PluginClientContext) {
+	const removeReloadPills = contributeReloadComposerPills(client);
 	const removeSettings = client.addSettingsScreen({
 		id: LAUNCH_SETTINGS_SCREEN_ID,
 		title: "Pi launch",
@@ -84,5 +86,6 @@ export default function contribute(client: PluginClientContext) {
 		removeSidebar();
 		removeScreen();
 		removeSettings();
+		removeReloadPills();
 	};
 }

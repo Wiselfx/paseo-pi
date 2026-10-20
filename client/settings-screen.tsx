@@ -121,6 +121,12 @@ export function PiSettingsScreen({ theme }: PluginSurfaceProps) {
 				value={!values.noMcp}
 				onValueChange={(enabled) => update({ noMcp: !enabled })}
 			/>
+			<SettingsSwitch
+				label="Reload command"
+				hint="Adds /reload for settings, models, extensions, skills, prompts and context files"
+				value={values.reloadCommand}
+				onValueChange={(enabled) => update({ reloadCommand: enabled })}
+			/>
 			<SettingsAction
 				label="Save"
 				actionLabel={state.saving ? "Saving..." : dirty ? "Save" : "Saved"}

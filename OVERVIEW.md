@@ -12,6 +12,9 @@ edits pi's own files.
   management commands.
 - Each Paseo session gets one `pi --mode rpc` child. Session files are pi JSONL files; the
   `--session <file>` flag resumes them.
+- Every child loads a generated extension (`server/provider/reload-extension.ts`) that registers
+  pi's `/reload` command; the provider answers it, then refreshes the model list and commands. The
+  client adds a **Reload** composer pill for pi-plugin agents (`client/reload-pill.tsx`).
 - Capabilities: prompt message/command/image/steer, session configure/list/persistence. Tool
   policy and permission forwarding are deliberately not advertised.
 
