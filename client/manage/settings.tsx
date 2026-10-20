@@ -11,9 +11,10 @@ import {
 	Card,
 	Field,
 	Notice,
+	Section,
+	Switch,
 	TextArea,
 	TextField,
-	Toggle,
 	type ManageStyles,
 } from "./shared";
 
@@ -138,62 +139,139 @@ export function SettingsTab({ styles }: { styles: ManageStyles }) {
 
 	return (
 		<>
-			<Card
+			<Notice styles={styles} message={error} tone="error" />
+
+			<Section
 				styles={styles}
 				title="Pi settings"
-				trailing={<Button styles={styles} label="Reload" onPress={() => void load()} disabled={busy} />}
-			>
-				<Text style={styles.muted}>
-					Writes {path || "settings.json"}. Provider credentials and models are managed in Providers & models;
-					process launch flags are in Launch settings.
-				</Text>
-				<Notice styles={styles} message={error} tone="error" />
-				<Notice styles={styles} message={notice} tone="ok" />
-
-				<Field styles={styles} label="Default provider" hint="For example Zen. Empty lets pi choose.">
-					<TextField styles={styles} value={defaultProvider} onChangeText={setDefaultProvider} />
-				</Field>
-				<Field styles={styles} label="Default model">
-					<TextField styles={styles} value={defaultModel} onChangeText={setDefaultModel} />
-				</Field>
-				<Field styles={styles} label="Default thinking level" hint="off, minimal, low, medium, high, xhigh, or max">
-					<TextField styles={styles} value={thinking} onChangeText={setThinking} />
-				</Field>
-				<Field styles={styles} label="Enabled models" hint="Comma separated patterns. Empty enables all.">
-					<TextField styles={styles} value={enabledModels} onChangeText={setEnabledModels} />
-				</Field>
-				<Field styles={styles} label="Default tools" hint="Comma separated. Empty uses pi's defaults.">
-					<TextField styles={styles} value={defaultTools} onChangeText={setDefaultTools} />
-				</Field>
-				<Field styles={styles} label="Session directory" hint="Empty uses the agent session directory.">
-					<TextField styles={styles} value={sessionDir} onChangeText={setSessionDir} />
-				</Field>
-				<Toggle
-					styles={styles}
-					label="Register skills as slash commands"
-					value={skillCommands}
-					onChange={setSkillCommands}
-				/>
-				<View style={styles.wrap}>
+				hint={path || "Written to the pi agent directory"}
+				trailing={
 					<Button
 						styles={styles}
-						label={busy ? "Saving..." : "Save settings"}
-						primary
-						disabled={busy || !revision}
-						onPress={() => void save()}
+						label="Reload"
+						variant="outline"
+						onPress={() => void load()}
+						disabled={busy}
 					/>
-					<Button styles={styles} label={showRaw ? "Hide JSON" : "Edit JSON"} onPress={() => setShowRaw((v) => !v)} />
-				</View>
-			</Card>
-
-			{showRaw ? (
-				<Card styles={styles} title="settings.json">
-					<TextArea styles={styles} value={raw} onChangeText={setRaw} minHeight={260} />
-					<View style={styles.wrap}>
-						<Button styles={styles} label="Apply JSON to form" onPress={applyRaw} />
-						<Button styles={styles} label="Reload from disk" onPress={() => void load()} />
+				}
+			>
+				<Card styles={styles}>
+					<View style={styles.form}>
+						<View style={styles.fieldGrid}>
+							<View style={styles.fieldHalf}>
+								<Field styles={styles} label="Default provider" hint="For example Zen. Empty lets pi choose.">
+									<TextField
+										styles={styles}
+										value={defaultProvider}
+										onChangeText={setDefaultProvider}
+									/>
+								</Field>
+							</View>
+							<View style={styles.fieldHalf}>
+								<Field styles={styles} label="Default model">
+									<TextField styles={styles} value={defaultModel} onChangeText={setDefaultModel} />
+								</Field>
+							</View>
+						</View>
+						<View style={styles.fieldGrid}>
+							<View style={styles.fieldHalf}>
+								<Field
+									styles={styles}
+									label="Thinking level"
+									hint="off, minimal, low, medium, high, xhigh, or max."
+								>
+									<TextField styles={styles} value={thinking} onChangeText={setThinking} />
+								</Field>
+							</View>
+							<View style={styles.fieldHalf}>
+								<Field
+									styles={styles}
+									label="Session directory"
+									hint="Empty uses the agent session directory."
+								>
+									<TextField styles={styles} value={sessionDir} onChangeText={setSessionDir} />
+								</Field>
+							</View>
+						</View>
+						<Field
+							styles={styles}
+							label="Enabled models"
+							hint="Comma separated patterns. Empty enables all."
+						>
+							<TextField
+								styles={styles}
+								value={enabledModels}
+								onChangeText={setEnabledModels}
+							/>
+						</Field>
+						<Field
+							styles={styles}
+							label="Default tools"
+							hint="Comma separated. Empty uses pi's defaults."
+						>
+							<TextField styles={styles} value={defaultTools} onChangeText={setDefaultTools} />
+						</Field>
+						<View style={styles.toggleRow}>
+							<View style={styles.toggleText}>
+								<Text style={styles.label}>Register skills as slash commands</Text>
+								<Text style={styles.hint}>Skills appear as /skill:name in the composer.</Text>
+							</View>
+							<Switch
+								styles={styles}
+								label="Register skills as slash commands"
+								value={skillCommands}
+								onChange={setSkillCommands}
+							/>
+						</View>
+						<View style={styles.formFooter}>
+							<Button
+								styles={styles}
+								label={busy ? "Saving…" : "Save settings"}
+								variant="primary"
+								loading={busy}
+								disabled={!revision}
+								onPress={() => void save()}
+							/>
+							<Button
+								styles={styles}
+								label={showRaw ? "Close JSON" : "Edit JSON"}
+								variant="ghost"
+								onPress={() => setShowRaw((value) => !value)}
+							/>
+							{notice ? <Text style={styles.small}>{notice}</Text> : null}
+						</View>
 					</View>
 				</Card>
+			</Section>
+
+			{showRaw ? (
+				<Section styles={styles} title="settings.json" hint={path || undefined}>
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<TextArea
+								styles={styles}
+								value={raw}
+								onChangeText={setRaw}
+								minHeight={280}
+								accessibilityLabel="settings.json content"
+							/>
+							<View style={styles.formFooter}>
+								<Button
+									styles={styles}
+									label="Apply to form"
+									variant="outline"
+									onPress={applyRaw}
+								/>
+								<Button
+									styles={styles}
+									label="Reload from disk"
+									variant="ghost"
+									onPress={() => void load()}
+								/>
+							</View>
+						</View>
+					</Card>
+				</Section>
 			) : null}
 		</>
 	);

@@ -19,11 +19,14 @@ import {
 	Button,
 	Card,
 	ConfirmButton,
+	EmptyState,
 	Field,
 	Notice,
+	Row,
+	Section,
+	Switch,
 	TextArea,
 	TextField,
-	Toggle,
 	type ManageStyles,
 } from "./shared";
 
@@ -84,6 +87,7 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 	const [error, setError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [loading, setLoading] = useState(true);
 	const [fetching, setFetching] = useState<{
 		provider: string;
 		api: string;
@@ -95,6 +99,7 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 
 	const load = async () => {
 		setError(null);
+		setLoading(true);
 		try {
 			const data = await readRpc({});
 			setProviders(data.providers);
@@ -103,6 +108,8 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 			setRaw(data.raw);
 		} catch (failure) {
 			setError(failure instanceof Error ? failure.message : String(failure));
+		} finally {
+			setLoading(false);
 		}
 	};
 
@@ -255,241 +262,82 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 		setProvider(null);
 	};
 
+	const matchesFilter = (model: PiFetchedModel) =>
+		`${model.id} ${model.name ?? ""}`.toLowerCase().includes(modelFilter.trim().toLowerCase());
+	const shown = fetching?.models.filter(matchesFilter) ?? [];
+	const isInstalled = (id: string) =>
+		providers.find((entry) => entry.name === fetching?.provider)?.models.some((model) => model.id === id) ??
+		false;
+	const shownInstallable = shown.filter((model) => !isInstalled(model.id));
+	const selectedCount = fetching?.models.filter((model) => selected[model.id]).length ?? 0;
+
 	return (
 		<>
-			<Card
-				styles={styles}
-				title="Providers & models"
-				trailing={
-					<View style={styles.wrap}>
-						<Button styles={styles} label="Reload" onPress={() => void load()} disabled={busy} />
-						<Button styles={styles} label="Add provider" primary onPress={addProvider} />
-					</View>
-				}
-			>
-				<Text style={styles.muted}>
-					{path || "models.json"} adds OpenAI-, Anthropic-, and Google-compatible endpoints. A key is never
-					returned; leave it blank while editing to keep the stored value.
-				</Text>
-				<Notice styles={styles} message={error} tone="error" />
-				<Text style={styles.muted}>
-					Paseo's built-in pi provider already lists pi's models, so the Pi Plugin provider
-					advertises none. Turn on Expose models in Settings if you need a separate list.
-				</Text>
-				<Notice styles={styles} message={notice} tone="ok" />
+			<Notice styles={styles} message={error} tone="error" />
+			<Notice styles={styles} message={notice} tone="ok" />
 
-			{provider ? (
-				<Card styles={styles} title={provider.originalName ? "Edit provider" : "Add provider"}>
-					<Field styles={styles} label="Provider ID" hint="Used as provider/model. Letters, numbers, dots, dashes.">
-						<TextField
-							styles={styles}
-							value={provider.name}
-							onChangeText={(name) => setProvider({ ...provider, name })}
-							placeholder="ollama"
-						/>
-					</Field>
-					<Field styles={styles} label="Display name">
-						<TextField
-							styles={styles}
-							value={provider.label}
-							onChangeText={(label) => setProvider({ ...provider, label })}
-							placeholder="Ollama"
-							autoCapitalize="sentences"
-						/>
-					</Field>
-					<Field styles={styles} label="Base URL">
-						<TextField
-							styles={styles}
-							value={provider.baseUrl}
-							onChangeText={(baseUrl) => setProvider({ ...provider, baseUrl })}
-							placeholder="http://localhost:11434/v1"
-						/>
-					</Field>
-					<Field styles={styles} label="API" hint="openai-completions, openai-responses, anthropic-messages, google-generative-ai">
-						<TextField
-							styles={styles}
-							value={provider.api}
-							onChangeText={(api) => setProvider({ ...provider, api })}
-							placeholder="openai-completions"
-						/>
-					</Field>
-					<Field
-						styles={styles}
-						label="API key"
-						hint={
-							provider.apiKeyTouched
-								? "Blank clears the stored key."
-								: "Blank keeps the stored key. $NAME reads an environment variable."
-						}
-					>
-						<TextField
-							styles={styles}
-							value={provider.apiKey}
-							onChangeText={(apiKey) => setProvider({ ...provider, apiKey, apiKeyTouched: true })}
-							placeholder="$OPENAI_API_KEY"
-							secure
-						/>
-					</Field>
-					<View style={styles.wrap}>
-						<Button
-							styles={styles}
-							label={busy ? "Saving..." : "Save provider"}
-							primary
-							disabled={busy || !provider.name.trim()}
-							onPress={saveProvider}
-						/>
-						<Button styles={styles} label="Cancel" onPress={() => setProvider(null)} />
-					</View>
-				</Card>
-			) : null}
-
-			{modelsFor ? (
-				<Card
+			{fetching ? (
+				<Section
 					styles={styles}
-					title={`${modelsFor.originalId ? "Edit" : "Add"} model in ${modelsFor.provider}`}
-				>
-					<Field styles={styles} label="Model ID" hint="The ID sent to the API.">
-						<TextField
-							styles={styles}
-							value={modelsFor.id}
-							onChangeText={(id) => setModelsFor({ ...modelsFor, id })}
-							placeholder="qwen2.5-coder:7b"
-						/>
-					</Field>
-					<Field styles={styles} label="Display name">
-						<TextField
-							styles={styles}
-							value={modelsFor.name}
-							onChangeText={(name) => setModelsFor({ ...modelsFor, name })}
-							autoCapitalize="sentences"
-						/>
-					</Field>
-					<View style={styles.row}>
-						<View style={{ flex: 1 }}>
-							<Toggle
-								styles={styles}
-								label="Reasoning"
-								value={modelsFor.reasoning}
-								onChange={(reasoning) => setModelsFor({ ...modelsFor, reasoning })}
-							/>
-						</View>
-						<View style={{ flex: 1 }}>
-							<Toggle
-								styles={styles}
-								label="Images"
-								value={modelsFor.images}
-								onChange={(images) => setModelsFor({ ...modelsFor, images })}
-							/>
-						</View>
-					</View>
-					<Field styles={styles} label="Context window" hint="Tokens. Empty uses pi's default.">
-						<TextField
-							styles={styles}
-							value={modelsFor.contextWindow}
-							onChangeText={(contextWindow) => setModelsFor({ ...modelsFor, contextWindow })}
-							placeholder="128000"
-						/>
-					</Field>
-					<Field styles={styles} label="Max output tokens">
-						<TextField
-							styles={styles}
-							value={modelsFor.maxTokens}
-							onChangeText={(maxTokens) => setModelsFor({ ...modelsFor, maxTokens })}
-							placeholder="16384"
-						/>
-					</Field>
-					<View style={styles.wrap}>
+					title={`Add models from ${fetching.provider}`}
+					hint={`${fetching.api} at ${fetching.baseUrl}. Pick the models pi should know about.`}
+					trailing={
 						<Button
 							styles={styles}
-							label={busy ? "Saving..." : "Save model"}
-							primary
-							disabled={busy || !modelsFor.id.trim()}
-							onPress={saveModel}
+							label="Cancel"
+							variant="ghost"
+							onPress={() => {
+								setFetching(null);
+								setSelected({});
+							}}
 						/>
-						<Button styles={styles} label="Cancel" onPress={() => setModelsFor(null)} />
-					</View>
-				</Card>
-			) : null}
-
-				{fetching ? (
-					<Card styles={styles} title={`Models from ${fetching.provider}`}>
-						<Text style={styles.muted}>
-							{fetching.api} at {fetching.baseUrl}. Pick the models pi should know about.
-						</Text>
-						<TextField
-							styles={styles}
-							value={modelFilter}
-							onChangeText={setModelFilter}
-							placeholder="Filter models"
-						/>
-						<View style={styles.wrap}>
-							<Button
-								styles={styles}
-								label="Select all shown"
-								disabled={busy}
-								onPress={() =>
-									setSelected(
-										Object.fromEntries(
-											fetching.models
-												.filter((model) => {
-													const installed =
-														providers
-															.find((entry) => entry.name === fetching.provider)
-															?.models.some((existing) => existing.id === model.id) ?? false;
-													return (
-														!installed &&
-														`${model.id} ${model.name ?? ""}`
-															.toLowerCase()
-															.includes(modelFilter.trim().toLowerCase())
-													);
-												})
-												.map((model) => [model.id, true]),
-										),
-									)
-								}
-							/>
-							<Button
-								styles={styles}
-								label="Clear"
-								disabled={busy}
-								onPress={() => setSelected({})}
-							/>
-							<Button
-								styles={styles}
-								label={busy ? "Adding..." : `Add selected (${fetching.models.filter((model) => selected[model.id]).length})`}
-								primary
-								disabled={busy || !fetching.models.some((model) => selected[model.id])}
-								onPress={addSelectedModels}
-							/>
-							<Button
-								styles={styles}
-								label="Cancel"
-								disabled={busy}
-								onPress={() => {
-									setFetching(null);
-									setSelected({});
-								}}
-							/>
+					}
+				>
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<View style={styles.inline}>
+								<View style={styles.grow}>
+									<TextField
+										styles={styles}
+										value={modelFilter}
+										onChangeText={setModelFilter}
+										placeholder="Filter models"
+										accessibilityLabel="Filter models"
+									/>
+								</View>
+								<Button
+									styles={styles}
+									label="Select all shown"
+									variant="ghost"
+									disabled={busy || shownInstallable.length === 0}
+									onPress={() =>
+										setSelected(
+											Object.fromEntries(shownInstallable.map((model) => [model.id, true])),
+										)
+									}
+								/>
+								<Button
+									styles={styles}
+									label="Clear"
+									variant="ghost"
+									disabled={busy || selectedCount === 0}
+									onPress={() => setSelected({})}
+								/>
+							</View>
 						</View>
-						{fetching.models
-							.filter((model) =>
-								`${model.id} ${model.name ?? ""}`
-									.toLowerCase()
-									.includes(modelFilter.trim().toLowerCase()),
-							)
-							.map((model) => {
-								const installed =
-									providers
-										.find((entry) => entry.name === fetching.provider)
-										?.models.some((existing) => existing.id === model.id) ?? false;
+						{shown.length === 0 ? (
+							<EmptyState styles={styles} title="No models match that filter" />
+						) : (
+							shown.map((model) => {
+								const installed = isInstalled(model.id);
 								return (
-									<View key={model.id} style={[styles.item, styles.between]}>
-										<View style={{ flex: 1, gap: 2 }}>
-											<Text style={styles.text}>{model.name ?? model.id}</Text>
-											{model.name && model.name !== model.id ? (
-												<Text style={styles.mono}>{model.id}</Text>
-											) : null}
-											<View style={styles.wrap}>
+									<Row
+										key={model.id}
+										styles={styles}
+										title={model.name ?? model.id}
+										mono={model.name && model.name !== model.id ? model.id : undefined}
+										badges={
+											<>
 												{model.contextWindow ? (
 													<Badge styles={styles} label={`${model.contextWindow} ctx`} />
 												) : null}
@@ -499,128 +347,445 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 												{model.input?.includes("image") ? <Badge styles={styles} label="vision" /> : null}
 												{model.reasoning ? <Badge styles={styles} label="reasoning" /> : null}
 												{installed ? <Badge styles={styles} label="installed" /> : null}
-											</View>
-										</View>
-										<Toggle
-											styles={styles}
-											label={installed ? "Added" : selected[model.id] ? "Selected" : "Select"}
-											value={installed || selected[model.id] === true}
-											disabled={installed}
-											onChange={(value) =>
-												setSelected((current) => ({ ...current, [model.id]: value }))
-											}
-										/>
-									</View>
+											</>
+										}
+										actions={
+											<Switch
+												styles={styles}
+												label={`Add ${model.id}`}
+												value={installed || selected[model.id] === true}
+												disabled={busy || installed}
+												onChange={(value) =>
+													setSelected((current) => ({ ...current, [model.id]: value }))
+												}
+											/>
+										}
+									/>
 								);
-							})}
+							})
+						)}
+						<View style={styles.form}>
+							<View style={styles.formFooter}>
+								<Button
+									styles={styles}
+									label={
+										busy
+											? "Adding…"
+											: `Add selected${selectedCount ? ` (${selectedCount})` : ""}`
+									}
+									variant="primary"
+									loading={busy}
+									disabled={selectedCount === 0}
+									onPress={addSelectedModels}
+								/>
+								<Button
+									styles={styles}
+									label="Cancel"
+									variant="ghost"
+									disabled={busy}
+									onPress={() => {
+										setFetching(null);
+										setSelected({});
+									}}
+								/>
+							</View>
+						</View>
+					</Card>
+				</Section>
+			) : null}
+
+			<Section
+				styles={styles}
+				title="Providers"
+				hint={`Endpoints in ${path || "models.json"}. Keys are never returned.`}
+				trailing={
+					<>
+						<Button
+							styles={styles}
+							label="Reload"
+							variant="ghost"
+							onPress={() => void load()}
+							disabled={busy || loading}
+						/>
+						<Button
+							styles={styles}
+							label={provider ? "Close" : "Add provider"}
+							variant="outline"
+							disabled={loading}
+							onPress={() => (provider ? setProvider(null) : addProvider())}
+						/>
+					</>
+				}
+			>
+				{provider ? (
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<Text style={styles.rowTitle}>
+								{provider.originalName ? "Edit provider" : "New provider"}
+							</Text>
+							<View style={styles.fieldGrid}>
+								<View style={styles.fieldHalf}>
+									<Field
+										styles={styles}
+										label="Provider ID"
+										hint="Used as provider/model. Letters, numbers, dots, and dashes."
+									>
+										<TextField
+											styles={styles}
+											value={provider.name}
+											onChangeText={(name) => setProvider({ ...provider, name })}
+											placeholder="ollama"
+										/>
+									</Field>
+								</View>
+								<View style={styles.fieldHalf}>
+									<Field styles={styles} label="Display name">
+										<TextField
+											styles={styles}
+											value={provider.label}
+											onChangeText={(label) => setProvider({ ...provider, label })}
+											placeholder="Ollama"
+											autoCapitalize="sentences"
+										/>
+									</Field>
+								</View>
+							</View>
+							<Field styles={styles} label="Base URL">
+								<TextField
+									styles={styles}
+									value={provider.baseUrl}
+									onChangeText={(baseUrl) => setProvider({ ...provider, baseUrl })}
+									placeholder="http://localhost:11434/v1"
+								/>
+							</Field>
+							<View style={styles.fieldGrid}>
+								<View style={styles.fieldHalf}>
+									<Field
+										styles={styles}
+										label="API"
+										hint="openai-completions, openai-responses, anthropic-messages, or google-generative-ai."
+									>
+										<TextField
+											styles={styles}
+											value={provider.api}
+											onChangeText={(api) => setProvider({ ...provider, api })}
+											placeholder="openai-completions"
+										/>
+									</Field>
+								</View>
+								<View style={styles.fieldHalf}>
+									<Field
+										styles={styles}
+										label="API key"
+										hint={
+											provider.apiKeyTouched
+												? "Blank clears the stored key."
+												: "Blank keeps the stored key. $NAME reads an environment variable."
+										}
+									>
+										<TextField
+											styles={styles}
+											value={provider.apiKey}
+											onChangeText={(apiKey) =>
+												setProvider({ ...provider, apiKey, apiKeyTouched: true })
+											}
+											placeholder="$OPENAI_API_KEY"
+											secure
+										/>
+									</Field>
+								</View>
+							</View>
+							<View style={styles.formFooter}>
+								<Button
+									styles={styles}
+									label={busy ? "Saving…" : "Save provider"}
+									variant="primary"
+									loading={busy}
+									disabled={!provider.name.trim()}
+									onPress={saveProvider}
+								/>
+								<Button
+									styles={styles}
+									label="Cancel"
+									variant="ghost"
+									onPress={() => setProvider(null)}
+								/>
+							</View>
+						</View>
 					</Card>
 				) : null}
 
-				{providers.length === 0 ? <Text style={styles.muted}>No providers in models.json yet.</Text> : null}
-				{providers.map((entry) => (
-					<View key={entry.name} style={styles.item}>
-						<View style={styles.between}>
-							<View style={{ flex: 1, gap: 2 }}>
-								<View style={styles.wrap}>
-									<Text style={styles.text}>{entry.label ?? entry.name}</Text>
-									<Badge styles={styles} label={entry.name} />
-									{entry.apiKeySet ? <Badge styles={styles} label="key set" /> : null}
+				{modelsFor ? (
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<Text style={styles.rowTitle}>
+								{modelsFor.originalId ? "Edit model" : "New model"} in {modelsFor.provider}
+							</Text>
+							<View style={styles.fieldGrid}>
+								<View style={styles.fieldHalf}>
+									<Field styles={styles} label="Model ID" hint="The ID sent to the API.">
+										<TextField
+											styles={styles}
+											value={modelsFor.id}
+											onChangeText={(id) => setModelsFor({ ...modelsFor, id })}
+											placeholder="qwen2.5-coder:7b"
+										/>
+									</Field>
 								</View>
-								{entry.baseUrl ? <Text style={styles.mono}>{entry.baseUrl}</Text> : null}
-								{entry.api ? <Text style={styles.muted}>{entry.api}</Text> : null}
+								<View style={styles.fieldHalf}>
+									<Field styles={styles} label="Display name">
+										<TextField
+											styles={styles}
+											value={modelsFor.name}
+											onChangeText={(name) => setModelsFor({ ...modelsFor, name })}
+											autoCapitalize="sentences"
+										/>
+									</Field>
+								</View>
 							</View>
-							<View style={styles.wrap}>
-								<Button styles={styles} label="Edit" onPress={() => editProvider(entry)} disabled={busy} />
+							<View style={styles.fieldGrid}>
+								<View style={styles.fieldHalf}>
+									<Field styles={styles} label="Context window" hint="Tokens. Empty uses pi's default.">
+										<TextField
+											styles={styles}
+											value={modelsFor.contextWindow}
+											onChangeText={(contextWindow) =>
+												setModelsFor({ ...modelsFor, contextWindow })
+											}
+											placeholder="128000"
+										/>
+									</Field>
+								</View>
+								<View style={styles.fieldHalf}>
+									<Field styles={styles} label="Max output tokens">
+										<TextField
+											styles={styles}
+											value={modelsFor.maxTokens}
+											onChangeText={(maxTokens) => setModelsFor({ ...modelsFor, maxTokens })}
+											placeholder="16384"
+										/>
+									</Field>
+								</View>
+							</View>
+							<View style={styles.fieldGrid}>
+								<View style={styles.fieldHalf}>
+									<Field styles={styles} label="Reasoning" hint="The model emits thinking.">
+										<Switch
+											styles={styles}
+											label="Reasoning"
+											value={modelsFor.reasoning}
+											onChange={(reasoning) => setModelsFor({ ...modelsFor, reasoning })}
+										/>
+									</Field>
+								</View>
+								<View style={styles.fieldHalf}>
+									<Field styles={styles} label="Images" hint="The model accepts image input.">
+										<Switch
+											styles={styles}
+											label="Images"
+											value={modelsFor.images}
+											onChange={(images) => setModelsFor({ ...modelsFor, images })}
+										/>
+									</Field>
+								</View>
+							</View>
+							<View style={styles.formFooter}>
 								<Button
 									styles={styles}
-									label="Fetch models"
-									disabled={busy || !entry.baseUrl}
-									onPress={() => fetchModels(entry)}
+									label={busy ? "Saving…" : "Save model"}
+									variant="primary"
+									loading={busy}
+									disabled={!modelsFor.id.trim()}
+									onPress={saveModel}
 								/>
-								<ConfirmButton
+								<Button
 									styles={styles}
-									label="Remove"
-									confirmLabel="Confirm remove"
-									disabled={busy}
-									onConfirm={() =>
-										void run(async () => {
-											if (!revision) return;
-											await deleteProviderRpc({ revision, name: entry.name });
-											setNotice("Provider removed.");
-										})
-									}
+									label="Cancel"
+									variant="ghost"
+									onPress={() => setModelsFor(null)}
 								/>
 							</View>
 						</View>
+					</Card>
+				) : null}
 
-						{entry.models.map((model) => (
-							<View key={`${entry.name}/${model.id}`} style={[styles.between, { paddingLeft: 10 }]}>
-								<View style={{ flex: 1 }}>
-									<Text style={styles.text}>{model.name ?? model.id}</Text>
-									<Text style={styles.mono}>{model.id}</Text>
-									<View style={styles.wrap}>
-										{model.reasoning ? <Badge styles={styles} label="reasoning" /> : null}
-										{model.input.includes("image") ? <Badge styles={styles} label="vision" /> : null}
-										{model.contextWindow ? <Badge styles={styles} label={`${model.contextWindow} ctx`} /> : null}
+				<Card styles={styles}>
+					{loading && providers.length === 0 ? (
+						<EmptyState styles={styles} title="Reading models.json…" />
+					) : providers.length === 0 ? (
+						<EmptyState
+							styles={styles}
+							title={error ? "Could not read models.json" : "No providers yet"}
+							hint={
+								error
+									? "See the error above."
+									: "Add an OpenAI-, Anthropic-, or Google-compatible endpoint."
+							}
+							action={
+								<Button
+									styles={styles}
+									label="Add provider"
+									variant="outline"
+									onPress={addProvider}
+								/>
+							}
+						/>
+					) : (
+						providers.map((entry) => (
+							<View key={entry.name} style={styles.provider}>
+								<View style={styles.providerHeader}>
+									<View style={styles.rowText}>
+										<View style={styles.rowTitleLine}>
+											<Text style={styles.rowTitle}>{entry.label ?? entry.name}</Text>
+											{entry.label ? <Badge styles={styles} label={entry.name} /> : null}
+											{entry.apiKeySet ? <Badge styles={styles} label="key set" /> : null}
+											<Badge styles={styles} label={`${entry.models.length} model${entry.models.length === 1 ? "" : "s"}`} />
+										</View>
+										{entry.baseUrl ? (
+											<Text style={styles.rowMono} selectable>
+												{entry.baseUrl}
+											</Text>
+										) : null}
+										{entry.api ? <Text style={styles.rowHint}>{entry.api}</Text> : null}
+									</View>
+									<View style={styles.rowActions}>
+										<Button
+											styles={styles}
+											label="Edit"
+											variant="ghost"
+											onPress={() => editProvider(entry)}
+											disabled={busy}
+										/>
+										<Button
+											styles={styles}
+											label="Fetch models"
+											variant="outline"
+											disabled={busy || !entry.baseUrl}
+											onPress={() => fetchModels(entry)}
+										/>
+										<ConfirmButton
+											styles={styles}
+											label="Remove"
+											confirmLabel="Confirm remove"
+											disabled={busy}
+											onConfirm={() =>
+												void run(async () => {
+													if (!revision) return;
+													await deleteProviderRpc({ revision, name: entry.name });
+													setNotice("Provider removed.");
+												})
+											}
+										/>
 									</View>
 								</View>
-								<View style={styles.wrap}>
-									<Button styles={styles} label="Edit" onPress={() => editModel(entry, model)} disabled={busy} />
-									<ConfirmButton
+
+								<View style={styles.modelList}>
+									{entry.models.map((model) => (
+										<View key={`${entry.name}/${model.id}`} style={styles.modelRow}>
+											<View style={styles.rowText}>
+												<Text style={styles.rowTitle}>{model.name ?? model.id}</Text>
+												{model.name && model.name !== model.id ? (
+													<Text style={styles.rowMono}>{model.id}</Text>
+												) : null}
+												<View style={styles.rowTitleLine}>
+													{model.reasoning ? <Badge styles={styles} label="reasoning" /> : null}
+													{model.input.includes("image") ? <Badge styles={styles} label="vision" /> : null}
+													{model.contextWindow ? (
+														<Badge styles={styles} label={`${model.contextWindow} ctx`} />
+													) : null}
+												</View>
+											</View>
+											<View style={styles.rowActions}>
+												<Button
+													styles={styles}
+													label="Edit"
+													variant="ghost"
+													onPress={() => editModel(entry, model)}
+													disabled={busy}
+												/>
+												<ConfirmButton
+													styles={styles}
+													label="Delete"
+													confirmLabel="Confirm delete"
+													disabled={busy}
+													onConfirm={() =>
+														void run(async () => {
+															if (!revision) return;
+															await deleteModelRpc({
+																revision,
+																provider: entry.name,
+																id: model.id,
+															});
+															setNotice("Model deleted.");
+														})
+													}
+												/>
+											</View>
+										</View>
+									))}
+								</View>
+								<View style={styles.alignStart}>
+									<Button
 										styles={styles}
-										label="Delete"
-										confirmLabel="Confirm delete"
+										label={entry.models.length ? "Add model" : "Add the first model"}
+										variant="ghost"
+										onPress={() => addModel(entry)}
 										disabled={busy}
-										onConfirm={() =>
-											void run(async () => {
-												if (!revision) return;
-												await deleteModelRpc({ revision, provider: entry.name, id: model.id });
-												setNotice("Model deleted.");
-											})
-										}
 									/>
 								</View>
 							</View>
-						))}
+						))
+					)}
+				</Card>
+			</Section>
 
-						<View style={styles.wrap}>
-							<Button styles={styles} label="Add model" onPress={() => addModel(entry)} disabled={busy} />
-						</View>
-					</View>
-				))}
-			</Card>
-
-			<Card
-				styles={styles}
-				title="models.json"
-				trailing={
-					<Button
+			<Section styles={styles} title="models.json" hint={path || undefined}>
+				<Card styles={styles}>
+					<Row
 						styles={styles}
-						label={showRaw ? "Hide editor" : "Raw editor"}
-						onPress={() => setShowRaw((value) => !value)}
-					/>
-				}
-			>
-				<Text style={styles.muted}>
-					The raw editor keeps fields this form does not show, such as headers, cost, compat, and
-					modelOverrides. Secret-looking values appear as {PI_MODELS_SECRET_MASK} and are restored when saved.
-				</Text>
-				{showRaw ? (
-					<>
-						<TextArea styles={styles} value={raw} onChangeText={setRaw} minHeight={340} />
-						<View style={styles.wrap}>
+						title="Raw editor"
+						hint={`Keeps fields this form does not show, such as headers, cost, compat, and modelOverrides. Secret values appear as ${PI_MODELS_SECRET_MASK} and are restored when saved.`}
+						actions={
 							<Button
 								styles={styles}
-								label={busy ? "Saving..." : "Save JSON"}
-								primary
-								disabled={busy}
-								onPress={saveRaw}
+								label={showRaw ? "Close editor" : "Open editor"}
+								variant="outline"
+								onPress={() => setShowRaw((value) => !value)}
 							/>
-							<Button styles={styles} label="Discard changes" onPress={() => void load()} disabled={busy} />
+						}
+					/>
+				</Card>
+				{showRaw ? (
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<TextArea
+								styles={styles}
+								value={raw}
+								onChangeText={setRaw}
+								minHeight={340}
+								placeholder="{ }"
+								accessibilityLabel="models.json content"
+							/>
+							<View style={styles.formFooter}>
+								<Button
+									styles={styles}
+									label={busy ? "Saving…" : "Save JSON"}
+									variant="primary"
+									loading={busy}
+									onPress={saveRaw}
+								/>
+								<Button
+									styles={styles}
+									label="Discard changes"
+									variant="ghost"
+									onPress={() => void load()}
+									disabled={busy}
+								/>
+							</View>
 						</View>
-					</>
+					</Card>
 				) : null}
-			</Card>
+			</Section>
 		</>
 	);
 }

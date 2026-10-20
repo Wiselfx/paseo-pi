@@ -46,9 +46,10 @@ translation, and session persistence. `server/sessions.ts` resolves and lists se
 - Session listing reads `.jsonl` headers; deletion realpaths the file, refuses anything outside the
   resolved session directory, deletes matching Paseo agents through the CLI, then unlinks.
 
-`client/manage/` is the UI, split by tab. `client/manage/shared.tsx` holds theme-token primitives.
-`index.client.tsx` registers the sidebar item, the `pi-launch` settings screen, the management
-screen, command-center entries, and the provider icons.
+`client/manage/` is the UI, split by tab. `client/manage/shared.tsx` holds theme-token primitives
+(Paseo-style cards, rows, switches, fields, and buttons) shared by the management panel and the
+`pi-launch` settings screen. `index.client.tsx` registers the sidebar item, the launch settings
+screen, the management screen, command-center entries, and the provider icons.
 
 ## File map
 

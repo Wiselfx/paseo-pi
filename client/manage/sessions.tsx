@@ -11,8 +11,11 @@ import {
 	Button,
 	Card,
 	ConfirmButton,
+	EmptyState,
 	Field,
 	Notice,
+	Row,
+	Section,
 	TextField,
 	type ManageStyles,
 } from "./shared";
@@ -86,65 +89,106 @@ export function SessionsTab({ styles }: { styles: ManageStyles }) {
 
 	return (
 		<>
-			<Card
+			<Notice styles={styles} message={error} tone="error" />
+			<Notice styles={styles} message={notice} tone="ok" />
+
+			<Section
 				styles={styles}
-				title="Pi sessions"
+				title="Sessions"
+				hint={sessionDir || "JSONL session files written by pi"}
 				trailing={
-					<Button styles={styles} label="Reload sessions" onPress={() => void load(true)} disabled={loading || busy} />
-				}
-			>
-				<Text style={styles.muted}>{sessionDir}</Text>
-				<View style={styles.row}>
-					<View style={{ flex: 1 }}>
-						<Field styles={styles} label="Working directory">
-							<TextField styles={styles} value={cwd} onChangeText={setCwd} placeholder="/path/to/project" />
-						</Field>
-					</View>
-					<View style={{ flex: 1 }}>
-						<Field styles={styles} label="Search">
-							<TextField styles={styles} value={query} onChangeText={setQuery} placeholder="title or id" />
-						</Field>
-					</View>
-				</View>
-				<View style={styles.wrap}>
-					<Button styles={styles} label="Apply filters" onPress={() => void load(true)} disabled={loading || busy} />
 					<Button
 						styles={styles}
-						label="All sessions"
-						onPress={() => {
-							setCwd("");
-							setQuery("");
-							void load(false);
-						}}
+						label="Reload"
+						variant="outline"
+						onPress={() => void load(true)}
 						disabled={loading || busy}
 					/>
-				</View>
-				<Notice styles={styles} message={error} tone="error" />
-				<Notice styles={styles} message={notice} tone="ok" />
-
-				{loading ? <Text style={styles.muted}>Reading session files...</Text> : null}
-				{!loading && sessions.length === 0 ? <Text style={styles.muted}>No sessions match.</Text> : null}
-				{sessions.map((session) => (
-					<View key={session.sessionFile} style={[styles.item, styles.between]}>
-						<View style={{ flex: 1, gap: 3 }}>
-							<View style={styles.wrap}>
-								<Text style={styles.text}>{session.title || "(untitled)"}</Text>
-								<Badge styles={styles} label={age(session.updatedAt)} />
+				}
+			>
+				<Card styles={styles}>
+					<View style={styles.form}>
+						<View style={styles.fieldGrid}>
+							<View style={styles.fieldHalf}>
+								<Field styles={styles} label="Working directory">
+									<TextField
+										styles={styles}
+										value={cwd}
+										onChangeText={setCwd}
+										placeholder="/path/to/project"
+									/>
+								</Field>
 							</View>
-							<Text style={styles.mono}>{session.sessionId}</Text>
-							<Text style={styles.muted}>{session.cwd}</Text>
-							<Text style={styles.mono}>{session.sessionFile}</Text>
+							<View style={styles.fieldHalf}>
+								<Field styles={styles} label="Search">
+									<TextField
+										styles={styles}
+										value={query}
+										onChangeText={setQuery}
+										placeholder="Title or session ID"
+									/>
+								</Field>
+							</View>
 						</View>
-						<ConfirmButton
-							styles={styles}
-							label="Delete"
-							confirmLabel="Confirm delete"
-							disabled={busy || !session.sessionFile}
-							onConfirm={() => void remove(session)}
-						/>
+						<View style={styles.formFooter}>
+							<Button
+								styles={styles}
+								label="Apply filters"
+								variant="primary"
+								onPress={() => void load(true)}
+								disabled={loading || busy}
+							/>
+							<Button
+								styles={styles}
+								label="Clear filters"
+								variant="ghost"
+								onPress={() => {
+									setCwd("");
+									setQuery("");
+									void load(false);
+								}}
+								disabled={loading || busy}
+							/>
+							<Text style={styles.small}>
+								{loading ? "Reading…" : `${sessions.length} shown`}
+							</Text>
+						</View>
 					</View>
-				))}
-			</Card>
+				</Card>
+
+				<Card styles={styles}>
+					{loading && sessions.length === 0 ? (
+						<EmptyState styles={styles} title="Reading session files…" />
+					) : sessions.length === 0 ? (
+						<EmptyState
+							styles={styles}
+							title={error ? "Could not read sessions" : "No sessions match"}
+							hint={error ? "See the error above." : "Clear the filters to see every session in this directory."}
+						/>
+					) : (
+						sessions.map((session) => (
+							<Row
+								key={session.sessionFile}
+								styles={styles}
+								stack
+								title={session.title || "Untitled session"}
+								hint={session.cwd}
+								mono={session.sessionFile}
+								badges={<Badge styles={styles} label={age(session.updatedAt)} />}
+								actions={
+									<ConfirmButton
+										styles={styles}
+										label="Delete"
+										confirmLabel="Confirm delete"
+										disabled={busy || !session.sessionFile}
+										onConfirm={() => void remove(session)}
+									/>
+								}
+							/>
+						))
+					)}
+				</Card>
+			</Section>
 		</>
 	);
 }

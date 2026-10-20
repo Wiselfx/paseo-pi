@@ -1,6 +1,6 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import {
 	piAddExtensionRpc,
 	piCreateSkillRpc,
@@ -25,13 +25,23 @@ import {
 	Button,
 	Card,
 	ConfirmButton,
+	EmptyState,
 	Field,
 	Notice,
-	TextField,
+	Row,
+	Section,
+	Switch,
 	TextArea,
-	Toggle,
+	TextField,
 	type ManageStyles,
 } from "./shared";
+
+const BUILTIN_HINTS: Record<string, string> = {
+	mcp: "Model Context Protocol servers from mcp.json.",
+	"llama.cpp": "Local llama.cpp inference.",
+	codemode: "Batched tool calls through one script.",
+	"tool-search": "Find tools on demand instead of loading every definition.",
+};
 
 export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 	const listRpc = useRpc(piListResourcesRpc);
@@ -55,6 +65,8 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 	const [notice, setNotice] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
+	const [showInstall, setShowInstall] = useState(false);
+	const [showExtension, setShowExtension] = useState(false);
 	const [source, setSource] = useState("");
 	const [extensionPath, setExtensionPath] = useState("");
 	const [showSkillForm, setShowSkillForm] = useState(false);
@@ -105,15 +117,21 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 	const packages = extensions.filter((entry) => entry.kind === "package");
 	const configured = extensions.filter((entry) => entry.kind === "extension");
 	const builtins = extensions.filter((entry) => entry.kind === "builtin");
+	const visibleCandidates = (skillCandidates ?? []).filter((candidate) =>
+		`${candidate.name} ${candidate.description}`
+			.toLowerCase()
+			.includes(skillFilter.trim().toLowerCase()),
+	);
 
 	const addExtension = () =>
 		void run(async () => {
 			const value = normalizePackageInput(extensionPath);
 			if (looksLikePackageSource(value)) {
-				throw new Error("That is a package source. Use Install package above.");
+				throw new Error("That is a package source. Use Install package instead.");
 			}
 			const added = await addExtensionRpc({ path: value });
 			setExtensionPath("");
+			setShowExtension(false);
 			return `Added ${added.path}. New sessions load it.`;
 		});
 
@@ -121,6 +139,7 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 		void run(async () => {
 			const result = await installRpc({ source: normalizePackageInput(source) });
 			setSource("");
+			setShowInstall(false);
 			return result.output || "Package installed.";
 		});
 
@@ -143,6 +162,7 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 			});
 			setSkillCandidates(null);
 			setSkillSource("");
+			setShowSkillForm(false);
 			return `Installed ${installed.name}. New sessions load it.`;
 		});
 
@@ -156,21 +176,27 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 			setSkillName("");
 			setSkillDescription("");
 			setSkillInstructions("");
+			setShowManualSkill(false);
 			setShowSkillForm(false);
 			return `Skill written to ${created.path}`;
 		});
 
 	return (
 		<>
-			<Card
+			<Notice styles={styles} message={error} tone="error" />
+			<Notice styles={styles} message={notice} tone="ok" />
+
+			<Section
 				styles={styles}
-				title="Extensions & packages"
+				title="Packages"
+				hint={agentDir ? `Installed with pi's own installer in ${agentDir}` : undefined}
 				trailing={
-					<View style={styles.wrap}>
+					<>
 						<Button
 							styles={styles}
-							label="Update packages"
-							disabled={busy}
+							label={busy ? "Updating…" : "Update all"}
+							variant="ghost"
+							disabled={busy || packages.length === 0}
 							onPress={() =>
 								void run(async () => {
 									const result = await updateRpc({});
@@ -178,353 +204,474 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 								})
 							}
 						/>
-						<Text style={styles.muted}>{extensions.length}</Text>
-					</View>
+						<Button
+							styles={styles}
+							label={showInstall ? "Close" : "Install package"}
+							variant="outline"
+							onPress={() => setShowInstall((value) => !value)}
+						/>
+					</>
 				}
 			>
-				<Text style={styles.muted}>
-					Packages install through pi's own installer, so npm and git sources are reconciled exactly as they
-					would be from a terminal. Agent directory: {agentDir}
-				</Text>
-				<Field
-					styles={styles}
-					label="Install package"
-					hint="Paste npm:package, git:host/repo, https or ssh URL, or ./local-package. A pasted `pi install ...` command is accepted too."
-				>
-					<View style={styles.row}>
-						<View style={{ flex: 1 }}>
-							<TextField
+				{showInstall ? (
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<Field
 								styles={styles}
-								value={source}
-								onChangeText={(value) => setSource(normalizePackageInput(value))}
-								placeholder="npm:pi-tools"
-							/>
+								label="Package source"
+								hint="npm:package, git:host/repo, an https or ssh URL, or a local path. A pasted pi install command works too."
+							>
+								<View style={styles.inline}>
+									<View style={styles.grow}>
+										<TextField
+											styles={styles}
+											value={source}
+											onChangeText={(value) => setSource(normalizePackageInput(value))}
+											placeholder="npm:pi-tools"
+											accessibilityLabel="Package source"
+										/>
+									</View>
+									<Button
+										styles={styles}
+										label="Install"
+										variant="primary"
+										loading={busy}
+										disabled={!source.trim()}
+										onPress={install}
+									/>
+								</View>
+							</Field>
 						</View>
-						<Button
+					</Card>
+				) : null}
+				<Card styles={styles}>
+					{loading && packages.length === 0 ? (
+						<EmptyState styles={styles} title="Reading packages…" />
+					) : packages.length === 0 ? (
+						<EmptyState
 							styles={styles}
-							label={busy ? "Working..." : "Install"}
-							primary
-							disabled={busy || !source.trim()}
-							onPress={install}
+							title={error ? "Could not read packages" : "No packages installed"}
+							hint={
+								error
+									? "See the error above."
+									: "Packages can add providers, tools, commands, extensions, and skills."
+							}
+							action={
+								error ? undefined : (
+									<Button
+										styles={styles}
+										label="Install a package"
+										variant="outline"
+										onPress={() => setShowInstall(true)}
+									/>
+								)
+							}
 						/>
-					</View>
-				</Field>
-				<Field styles={styles} label="Add extension path" hint="A TypeScript or JavaScript file, or an extension directory.">
-					<View style={styles.row}>
-						<View style={{ flex: 1 }}>
-							<TextField
+					) : (
+						packages.map((entry) => (
+							<Row
+								key={entry.id}
 								styles={styles}
-								value={extensionPath}
-								onChangeText={(value) => setExtensionPath(normalizePackageInput(value))}
-								placeholder="/home/me/.pi/extensions/my-extension.ts"
-							/>
-						</View>
-						<Button
-							styles={styles}
-							label="Add extension"
-							disabled={busy || !extensionPath.trim()}
-							onPress={addExtension}
-						/>
-					</View>
-				</Field>
-				<Notice styles={styles} message={error} tone="error" />
-				<Notice styles={styles} message={notice} tone="ok" />
-				{loading ? <Text style={styles.muted}>Reading pi resources...</Text> : null}
-
-				{packages.length > 0 ? (
-					<View style={{ gap: 10 }}>
-						<Text style={styles.sectionLabel}>Packages</Text>
-						{packages.map((entry) => (
-							<View key={entry.id} style={[styles.item, styles.between]}>
-								<View style={{ flex: 1, gap: 2 }}>
-									<View style={styles.wrap}>
-										<Text style={styles.text}>{entry.label}</Text>
+								stack
+								title={entry.label}
+								hint={entry.source}
+								mono={entry.path}
+								badges={
+									<>
 										{entry.version ? <Badge styles={styles} label={entry.version} /> : null}
 										{entry.note ? <Badge styles={styles} label={entry.note} /> : null}
-									</View>
-									<Text style={styles.mono}>{entry.source}</Text>
-									{entry.path ? <Text style={styles.muted}>{entry.path}</Text> : null}
-								</View>
-								{entry.removable ? (
-									<View style={styles.wrap}>
-										<Button
-											styles={styles}
-											label="Update"
-											disabled={busy}
-											onPress={() =>
-												void run(async () => {
-													const result = await updateRpc({ source: entry.source });
-													return result.output || `Updated ${entry.source}.`;
-												})
-											}
-										/>
-										<ConfirmButton
-											styles={styles}
-											label="Remove"
-											confirmLabel="Confirm remove"
-											disabled={busy}
-											onConfirm={() =>
-												void run(async () => {
-													const result = await removeRpc({ source: entry.source });
-													return result.output || `Removed ${entry.source}.`;
-												})
-											}
-										/>
-									</View>
-								) : null}
-							</View>
-						))}
-					</View>
-				) : null}
-
-				{configured.length > 0 ? (
-					<View style={{ gap: 10 }}>
-						<Text style={styles.sectionLabel}>Extensions</Text>
-						{configured.map((entry) => (
-							<View key={entry.id} style={[styles.item, styles.between]}>
-								<View style={{ flex: 1, gap: 2 }}>
-									<View style={styles.between}>
-										<Text style={styles.text}>{entry.label}</Text>
-										<Badge styles={styles} label={entry.removable ? "configured" : "discovered"} />
-									</View>
-									<Text style={styles.mono}>{entry.path ?? entry.source}</Text>
-									{entry.note ? <Text style={styles.muted}>{entry.note}</Text> : null}
-								</View>
-								<View style={styles.wrap}>
-									<Toggle
-										styles={styles}
-										label="Enabled"
-										value={entry.enabled}
-										disabled={busy}
-										onChange={(enabled) =>
-											void run(async () => {
-												const result = await setExtensionEnabledRpc({ path: entry.source, enabled });
-												return `${result.path} ${result.enabled ? "enabled" : "disabled"}. New sessions use the change.`;
-											})
-										}
-									/>
-									{entry.removable ? (
-										<ConfirmButton
-											styles={styles}
-											label="Remove"
-											confirmLabel="Confirm remove"
-											disabled={busy}
-											onConfirm={() =>
-												void run(async () => {
-													await removeExtensionRpc({ path: entry.source });
-													return `Removed ${entry.source}.`;
-												})
-											}
-										/>
-									) : null}
-								</View>
-							</View>
-						))}
-					</View>
-				) : null}
-
-				<View style={{ gap: 8 }}>
-					<Text style={styles.sectionLabel}>Built-in extensions</Text>
-					{builtins.map((entry) => (
-						<View key={entry.id} style={styles.item}>
-							<Toggle
-								styles={styles}
-								label={entry.label}
-								value={entry.enabled}
-								disabled={busy}
-								onChange={(enabled) =>
-									void run(async () => {
-										await setBuiltinRpc({
-											name: entry.label as "mcp" | "llama.cpp" | "codemode" | "tool-search",
-											enabled,
-										});
-										return `${entry.label} ${enabled ? "enabled" : "disabled"}. New sessions use the change.`;
-									})
+									</>
+								}
+								actions={
+									entry.removable ? (
+										<>
+											<Button
+												styles={styles}
+												label="Update"
+												variant="ghost"
+												disabled={busy}
+												onPress={() =>
+													void run(async () => {
+														const result = await updateRpc({ source: entry.source });
+														return result.output || `Updated ${entry.source}.`;
+													})
+												}
+											/>
+											<ConfirmButton
+												styles={styles}
+												label="Remove"
+												confirmLabel="Confirm remove"
+												disabled={busy}
+												onConfirm={() =>
+													void run(async () => {
+														const result = await removeRpc({ source: entry.source });
+														return result.output || `Removed ${entry.source}.`;
+													})
+												}
+											/>
+										</>
+									) : null
 								}
 							/>
-						</View>
-					))}
-					<Text style={styles.muted}>Changes apply to new sessions; a running session keeps its loaded extensions.</Text>
-				</View>
-			</Card>
+						))
+					)}
+				</Card>
+			</Section>
 
-			<Card
+			<Section
+				styles={styles}
+				title="Extensions"
+				hint="Each extension has its own switch. Changes apply to new sessions."
+				trailing={
+					<Button
+						styles={styles}
+						label={showExtension ? "Close" : "Add extension"}
+						variant="outline"
+						onPress={() => setShowExtension((value) => !value)}
+					/>
+				}
+			>
+				{showExtension ? (
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<Field
+								styles={styles}
+								label="Extension path"
+								hint="A .ts or .js file, or a directory with index.ts, index.js, or a pi.extensions manifest."
+							>
+								<View style={styles.inline}>
+									<View style={styles.grow}>
+										<TextField
+											styles={styles}
+											value={extensionPath}
+											onChangeText={(value) => setExtensionPath(normalizePackageInput(value))}
+											placeholder="/home/me/.pi/extensions/my-extension.ts"
+											accessibilityLabel="Extension path"
+										/>
+									</View>
+									<Button
+										styles={styles}
+										label="Add"
+										variant="primary"
+										loading={busy}
+										disabled={!extensionPath.trim()}
+										onPress={addExtension}
+									/>
+								</View>
+							</Field>
+						</View>
+					</Card>
+				) : null}
+				<Card styles={styles}>
+					{configured.length === 0 ? (
+						<EmptyState
+							styles={styles}
+							title={error ? "Could not read extensions" : "No extensions configured"}
+							hint={error ? "See the error above." : "Add a file or folder outside a package."}
+						/>
+					) : (
+						configured.map((entry) => (
+							<Row
+								key={entry.id}
+								styles={styles}
+								stack
+								title={entry.label}
+								hint={entry.note}
+								mono={entry.path ?? entry.source}
+								badges={<Badge styles={styles} label={entry.removable ? "configured" : "discovered"} />}
+								actions={
+									<>
+										<Switch
+											styles={styles}
+											label={`${entry.label} enabled`}
+											value={entry.enabled}
+											disabled={busy}
+											onChange={(enabled) =>
+												void run(async () => {
+													const result = await setExtensionEnabledRpc({
+														path: entry.source,
+														enabled,
+													});
+													return `${result.path} ${result.enabled ? "enabled" : "disabled"}. New sessions use the change.`;
+												})
+											}
+										/>
+										{entry.removable ? (
+											<ConfirmButton
+												styles={styles}
+												label="Remove"
+												confirmLabel="Confirm remove"
+												disabled={busy}
+												onConfirm={() =>
+													void run(async () => {
+														await removeExtensionRpc({ path: entry.source });
+														return `Removed ${entry.source}.`;
+													})
+												}
+											/>
+										) : null}
+									</>
+								}
+							/>
+						))
+					)}
+				</Card>
+			</Section>
+
+			<Section
+				styles={styles}
+				title="Built-in extensions"
+				hint="Ships with pi. Changes apply to new sessions."
+			>
+				<Card styles={styles}>
+					{builtins.map((entry) => (
+						<Row
+							key={entry.id}
+							styles={styles}
+							title={entry.label}
+							hint={entry.note ?? BUILTIN_HINTS[entry.label]}
+							actions={
+								<Switch
+									styles={styles}
+									label={`${entry.label} enabled`}
+									value={entry.enabled}
+									disabled={busy}
+									onChange={(enabled) =>
+										void run(async () => {
+											await setBuiltinRpc({
+												name: entry.label as "mcp" | "llama.cpp" | "codemode" | "tool-search",
+												enabled,
+											});
+											return `${entry.label} ${enabled ? "enabled" : "disabled"}. New sessions use the change.`;
+										})
+									}
+								/>
+							}
+						/>
+					))}
+				</Card>
+			</Section>
+
+			<Section
 				styles={styles}
 				title="Skills"
+				hint="SKILL.md folders from this agent and ~/.agents. New sessions use changes."
 				trailing={
 					<Button
 						styles={styles}
 						label={showSkillForm ? "Close" : "Add skill"}
+						variant="outline"
 						onPress={() => {
 							setShowSkillForm((value) => !value);
 							setSkillCandidates(null);
 							setSkillFilter("");
+							setShowManualSkill(false);
 						}}
 					/>
 				}
 			>
 				{showSkillForm ? (
-					<View style={{ gap: 10 }}>
-						<Field
-							styles={styles}
-							label="Install from GitHub"
-							hint="Paste a link to a SKILL.md file or a repository, such as github.com/owner/repo or github.com/owner/repo/blob/main/skills/name/SKILL.md"
-						>
-							<View style={styles.row}>
-								<View style={{ flex: 1 }}>
-									<TextField
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<Field
+								styles={styles}
+								label="GitHub link"
+								hint="A SKILL.md file or a repository, such as github.com/owner/repo or github.com/owner/repo/blob/main/skills/name/SKILL.md."
+							>
+								<View style={styles.inline}>
+									<View style={styles.grow}>
+										<TextField
+											styles={styles}
+											value={skillSource}
+											onChangeText={setSkillSource}
+											placeholder="https://github.com/owner/repo"
+											accessibilityLabel="GitHub link"
+										/>
+									</View>
+									<Button
 										styles={styles}
-										value={skillSource}
-										onChangeText={setSkillSource}
-										placeholder="https://github.com/owner/repo"
+										label="Find skills"
+										variant="primary"
+										loading={busy}
+										disabled={!skillSource.trim()}
+										onPress={inspectSkill}
 									/>
 								</View>
+							</Field>
+							<View style={styles.formFooter}>
 								<Button
 									styles={styles}
-									label={busy ? "Checking..." : "Find skills"}
-									primary
-									disabled={busy || !skillSource.trim()}
-									onPress={inspectSkill}
+									label={showManualSkill ? "Hide manual form" : "Write one instead"}
+									variant="ghost"
+									onPress={() => setShowManualSkill((value) => !value)}
 								/>
 							</View>
-						</Field>
-						{skillCandidates ? (
-							skillCandidates.length === 0 ? (
-								<Text style={styles.muted}>No skills found at that link.</Text>
-							) : (
-								<View style={{ gap: 8 }}>
-									<TextField
-										styles={styles}
-										value={skillFilter}
-										onChangeText={setSkillFilter}
-										placeholder="Filter by name"
-									/>
-									{skillCandidates
-										.filter((candidate) =>
-											`${candidate.name} ${candidate.description}`
-												.toLowerCase()
-												.includes(skillFilter.trim().toLowerCase()),
-										)
-										.map((candidate) => (
-											<View
-												key={candidate.path}
-												style={[styles.item, styles.between]}
-											>
-												<View style={{ flex: 1, gap: 2 }}>
-													<View style={styles.wrap}>
-														<Text style={styles.text}>{candidate.name}</Text>
-														{candidate.installed ? (
-															<Badge styles={styles} label="installed" />
-														) : null}
-													</View>
-													{candidate.description ? (
-														<Text style={styles.muted}>{candidate.description}</Text>
-													) : null}
-													<Text style={styles.mono}>{candidate.path}</Text>
-												</View>
-												<Button
-													styles={styles}
-													label="Add"
-													disabled={busy || candidate.installed}
-													onPress={() => installSkill(candidate)}
-												/>
-											</View>
-										))}
-								</View>
-							)
-						) : null}
-						<View style={styles.wrap}>
-							<Button
-								styles={styles}
-								label={showManualSkill ? "Hide manual form" : "Write one instead"}
-								onPress={() => setShowManualSkill((value) => !value)}
-							/>
 						</View>
-					</View>
+						{skillCandidates ? (
+							<View style={{ padding: 16 }}>
+								<TextField
+									styles={styles}
+									value={skillFilter}
+									onChangeText={setSkillFilter}
+									placeholder="Filter by name"
+									accessibilityLabel="Filter skills"
+								/>
+							</View>
+						) : null}
+						{skillCandidates && visibleCandidates.length === 0 ? (
+							<EmptyState
+								styles={styles}
+								title={
+									skillCandidates.length === 0
+										? "No skills found at that link"
+										: "No skills match that filter"
+								}
+							/>
+						) : null}
+						{visibleCandidates.map((candidate) => (
+							<Row
+								key={candidate.path}
+								styles={styles}
+								stack
+								title={candidate.name}
+								hint={candidate.description}
+								mono={candidate.path}
+								badges={candidate.installed ? <Badge styles={styles} label="installed" /> : null}
+								actions={
+									<Button
+										styles={styles}
+										label="Add"
+										variant="outline"
+										disabled={busy || candidate.installed}
+										onPress={() => installSkill(candidate)}
+									/>
+								}
+							/>
+						))}
+					</Card>
 				) : null}
 
 				{showSkillForm && showManualSkill ? (
-					<View style={{ gap: 10 }}>
-						<Field styles={styles} label="Name" hint="Lowercase letters, numbers, and hyphens.">
-							<TextField styles={styles} value={skillName} onChangeText={setSkillName} placeholder="my-skill" />
-						</Field>
-						<Field styles={styles} label="Description" hint="What it does and when the model should use it.">
-							<TextField
-								styles={styles}
-								value={skillDescription}
-								onChangeText={setSkillDescription}
-								placeholder="Extract tables from PDF files."
-								autoCapitalize="sentences"
-							/>
-						</Field>
-						<Field styles={styles} label="Instructions">
-							<TextArea
-								styles={styles}
-								value={skillInstructions}
-								onChangeText={setSkillInstructions}
-								placeholder="# My skill&#10;&#10;Steps the model should follow."
-							/>
-						</Field>
-						<View style={styles.wrap}>
-							<Button
-								styles={styles}
-								label="Create skill"
-								primary
-								disabled={busy || !skillName.trim() || !skillDescription.trim()}
-								onPress={createSkill}
-							/>
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<Field styles={styles} label="Name" hint="Lowercase letters, numbers, and hyphens.">
+								<TextField
+									styles={styles}
+									value={skillName}
+									onChangeText={setSkillName}
+									placeholder="my-skill"
+								/>
+							</Field>
+							<Field styles={styles} label="Description" hint="What it does and when the model should use it.">
+								<TextField
+									styles={styles}
+									value={skillDescription}
+									onChangeText={setSkillDescription}
+									placeholder="Extract tables from PDF files."
+									autoCapitalize="sentences"
+								/>
+							</Field>
+							<Field styles={styles} label="Instructions">
+								<TextArea
+									styles={styles}
+									value={skillInstructions}
+									onChangeText={setSkillInstructions}
+									placeholder={"# My skill\n\nSteps the model should follow."}
+								/>
+							</Field>
+							<View style={styles.formFooter}>
+								<Button
+									styles={styles}
+									label="Create skill"
+									variant="primary"
+									loading={busy}
+									disabled={!skillName.trim() || !skillDescription.trim()}
+									onPress={createSkill}
+								/>
+								<Button
+									styles={styles}
+									label="Cancel"
+									variant="ghost"
+									onPress={() => setShowManualSkill(false)}
+								/>
+							</View>
 						</View>
-					</View>
+					</Card>
 				) : null}
 
-				{!loading && skills.length === 0 ? (
-					<Text style={styles.muted}>No skills were found in the agent or ~/.agents skill directories.</Text>
-				) : null}
-				{skills.map((skill) => (
-					<View key={skill.path} style={[styles.item, styles.between]}>
-						<View style={{ flex: 1, gap: 3 }}>
-							<View style={styles.wrap}>
-								<Text style={styles.text}>{skill.name}</Text>
-								<Badge styles={styles} label={skill.source} />
-							</View>
-							{skill.description ? <Text style={styles.muted}>{skill.description}</Text> : null}
-							<Text style={styles.mono}>{skill.path}</Text>
-						</View>
-						<View style={styles.wrap}>
-							{skill.source === "package" ? (
-								<Badge styles={styles} label="from package" />
-							) : (
-								<Toggle
-									styles={styles}
-									label="Enabled"
-									value={skill.enabled}
-									disabled={busy}
-									onChange={(enabled) =>
-										void run(async () => {
-											const result = await setSkillEnabledRpc({ path: skill.path, enabled });
-											return `${skill.name} ${result.enabled ? "enabled" : "disabled"}. New sessions use the change.`;
-										})
-									}
-								/>
-							)}
-							{skill.removable ? (
-								<ConfirmButton
-									styles={styles}
-									label="Remove"
-									confirmLabel="Confirm remove"
-									disabled={busy}
-									onConfirm={() =>
-										void run(async () => {
-											await deleteRpc({ path: skill.path });
-											return `Removed ${skill.name}.`;
-										})
-									}
-								/>
-							) : null}
-						</View>
-					</View>
-				))}
-			</Card>
+				<Card styles={styles}>
+					{loading && skills.length === 0 ? (
+						<EmptyState styles={styles} title="Reading skills…" />
+					) : skills.length === 0 ? (
+						<EmptyState
+							styles={styles}
+							title={error ? "Could not read skills" : "No skills found"}
+							hint={
+								error
+									? "See the error above."
+									: "Add one from GitHub, or write a SKILL.md by hand."
+							}
+							action={
+								error ? undefined : (
+									<Button
+										styles={styles}
+										label="Add a skill"
+										variant="outline"
+										onPress={() => setShowSkillForm(true)}
+									/>
+								)
+							}
+						/>
+					) : (
+						skills.map((skill) => (
+							<Row
+								key={skill.path}
+								styles={styles}
+								stack
+								title={skill.name}
+								hint={skill.description}
+								mono={skill.path}
+								badges={<Badge styles={styles} label={skill.source} />}
+								actions={
+									skill.source === "package" ? undefined : (
+										<>
+											<Switch
+												styles={styles}
+												label={`${skill.name} enabled`}
+												value={skill.enabled}
+												disabled={busy}
+												onChange={(enabled) =>
+													void run(async () => {
+														const result = await setSkillEnabledRpc({
+															path: skill.path,
+															enabled,
+														});
+														return `${skill.name} ${result.enabled ? "enabled" : "disabled"}. New sessions use the change.`;
+													})
+												}
+											/>
+											{skill.removable ? (
+												<ConfirmButton
+													styles={styles}
+													label="Remove"
+													confirmLabel="Confirm remove"
+													disabled={busy}
+													onConfirm={() =>
+														void run(async () => {
+															await deleteRpc({ path: skill.path });
+															return `Removed ${skill.name}.`;
+														})
+													}
+												/>
+											) : null}
+										</>
+									)
+								}
+							/>
+						))
+					)}
+				</Card>
+			</Section>
 		</>
 	);
 }

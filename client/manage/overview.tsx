@@ -2,7 +2,18 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { piRefreshRpc, piStatusRpc, type PiStatus } from "../../shared/rpc";
-import { Button, Card, Notice, type ManageStyles, type ManageTheme } from "./shared";
+import {
+	ActionRow,
+	Badge,
+	Button,
+	Card,
+	Notice,
+	Row,
+	Section,
+	StatusDot,
+	type ManageStyles,
+	type ManageTheme,
+} from "./shared";
 
 export function OverviewTab({
 	styles,
@@ -40,83 +51,129 @@ export function OverviewTab({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	const ready = status?.available === true;
+	const title = status
+		? ready
+			? "Pi is ready"
+			: "Pi is unavailable"
+		: busy
+			? "Checking pi…"
+			: "Pi is unavailable";
+
 	return (
 		<>
-			<Card
+			<Notice styles={styles} message={error} tone="error" />
+
+			<Section
 				styles={styles}
-				title="Pi on this host"
+				title="Status"
 				trailing={
-					<View style={styles.row}>
-						{busy ? <ActivityIndicator size="small" color={theme.colors.accent} /> : null}
-						{status ? (
-							<Text style={status.available ? styles.ok : styles.error}>
-								{status.available ? "ready" : "unavailable"}
-							</Text>
-						) : null}
-					</View>
+					<Button
+						styles={styles}
+						label={busy ? "Refreshing…" : "Refresh"}
+						onPress={() => void load(true)}
+						disabled={busy}
+					/>
 				}
 			>
-				<Notice styles={styles} message={error} tone="error" />
-				{status ? (
-					<>
-						<View style={styles.row}>
-							<Text style={styles.mono}>{status.command}</Text>
-							<Text style={styles.muted}>{status.version ? `v${status.version}` : "version unknown"}</Text>
+				<Card styles={styles}>
+					<View style={styles.hero}>
+						<View style={styles.heroLine}>
+							{status ? (
+								<StatusDot styles={styles} tone={ready ? "ok" : "error"} />
+							) : busy ? (
+								<ActivityIndicator size="small" color={theme.colors.accent} />
+							) : (
+								<StatusDot styles={styles} tone="error" />
+							)}
+							<Text style={styles.heroTitle}>{title}</Text>
 						</View>
-						{status.diagnostic && (!status.available || status.diagnostic !== `pi ${status.version}`) ? (
-							<Notice styles={styles} message={status.diagnostic} tone="warning" />
-						) : null}
-						<View style={styles.between}>
-							<Text style={styles.label}>Models configured</Text>
-							<Text style={styles.text}>{status.modelCount}</Text>
-						</View>
-						<View style={{ gap: 3 }}>
-							<Text style={styles.label}>Sessions</Text>
-							<Text style={styles.mono}>{status.sessionDir}</Text>
-						</View>
-						<View style={{ gap: 3 }}>
-							<Text style={styles.label}>Agent directory</Text>
-							<Text style={styles.mono}>{status.configDir}</Text>
-						</View>
-					</>
+						<Text style={styles.heroHint}>
+							{status
+								? `${status.command}${status.version ? ` · version ${status.version}` : ""}`
+								: "Running the configured command on this host."}
+						</Text>
+					</View>
+					{status ? (
+						<>
+							<Row
+								styles={styles}
+								title="Models"
+								hint="Configured for pi"
+								actions={<Text style={styles.text}>{status.modelCount}</Text>}
+							/>
+							<Row styles={styles} title="Sessions" mono={status.sessionDir} />
+							<Row styles={styles} title="Agent directory" mono={status.configDir} />
+						</>
+					) : null}
+				</Card>
+				{status?.diagnostic && (!ready || status.diagnostic !== `pi ${status.version}`) ? (
+					<Notice styles={styles} message={status.diagnostic} tone="warning" />
 				) : null}
-				<View style={styles.wrap}>
-					<Button styles={styles} label="Refresh" onPress={() => void load(true)} disabled={busy} />
-					<Button styles={styles} label="Launch settings" onPress={onOpenSettings} />
-					<Button styles={styles} label="Manage resources" onPress={() => onTab("resources")} />
-				</View>
-			</Card>
+			</Section>
 
-			<Card styles={styles} title="Management surface">
-				<Text style={styles.muted}>
-					Extensions and skills install into pi's own agent directory. Providers and models live in models.json.
-					The prompt files are SYSTEM.md and APPEND_SYSTEM.md. Sessions are the JSONL files pi writes.
-				</Text>
-				<View style={styles.wrap}>
-					<Button styles={styles} label="Providers & models" onPress={() => onTab("models")} />
-					<Button styles={styles} label="Prompt" onPress={() => onTab("prompt")} />
-					<Button styles={styles} label="Sessions" onPress={() => onTab("sessions")} />
-					<Button styles={styles} label="Settings" onPress={() => onTab("settings")} />
-				</View>
-			</Card>
+			<Section styles={styles} title="Manage">
+				<Card styles={styles}>
+					<ActionRow
+						styles={styles}
+						title="Extensions & skills"
+						hint="Install packages, add extensions, and switch each resource on or off."
+						onPress={() => onTab("resources")}
+					/>
+					<ActionRow
+						styles={styles}
+						title="Providers & models"
+						hint="Edit models.json, add endpoints, and pick the models pi offers."
+						onPress={() => onTab("models")}
+					/>
+					<ActionRow
+						styles={styles}
+						title="Prompt"
+						hint="Add to or replace pi's system prompt."
+						onPress={() => onTab("prompt")}
+					/>
+					<ActionRow
+						styles={styles}
+						title="Sessions"
+						hint="Browse and delete the sessions pi wrote."
+						onPress={() => onTab("sessions")}
+					/>
+					<ActionRow
+						styles={styles}
+						title="Settings"
+						hint="Default model, tools, slash commands, and raw settings.json."
+						onPress={() => onTab("settings")}
+					/>
+					<ActionRow
+						styles={styles}
+						title="Launch settings"
+						hint="Command, arguments, environment, and the /reload command."
+						onPress={onOpenSettings}
+					/>
+				</Card>
+			</Section>
 
 			{status && status.models.length > 0 ? (
-				<Card styles={styles} title="Models in models.json">
-					{status.models.map((model) => (
-						<View key={model.id} style={[styles.item, styles.between]}>
-							<View style={{ flex: 1, gap: 2 }}>
-								<Text style={styles.text}>{model.label}</Text>
-								<Text style={styles.mono}>{model.id}</Text>
-							</View>
-							<View style={{ alignItems: "flex-end" as const, gap: 2 }}>
-								{model.reasoning ? <Text style={styles.label}>reasoning</Text> : null}
-								{model.contextWindow ? (
-									<Text style={styles.muted}>{Math.round(model.contextWindow / 1000)}k</Text>
-								) : null}
-							</View>
-						</View>
-					))}
-				</Card>
+				<Section styles={styles} title="Models in models.json">
+					<Card styles={styles}>
+						{status.models.map((model) => (
+							<Row
+								key={model.id}
+								styles={styles}
+								title={model.label}
+								mono={model.id}
+								badges={
+									<>
+										{model.reasoning ? <Badge styles={styles} label="reasoning" /> : null}
+										{model.contextWindow ? (
+											<Badge styles={styles} label={`${Math.round(model.contextWindow / 1000)}k ctx`} />
+										) : null}
+									</>
+								}
+							/>
+						))}
+					</Card>
+				</Section>
 			) : null}
 		</>
 	);

@@ -18,6 +18,9 @@ built-in `pi` provider; this plugin adds the management surface around it:
   settings, models, extensions, skills, prompts and context files in place.
 - **Settings** — edit common settings or the full `settings.json`.
 
+The management panel follows Paseo's settings vocabulary: grouped cards with hairline dividers,
+muted section labels, inline switches, and a compact single-column layout on phones.
+
 The plugin registers a provider (`pi-plugin`, label **Pi Plugin**) with Paseo. It starts one
 `pi --mode rpc` child per Paseo session and speaks pi's RPC protocol.
 

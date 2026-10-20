@@ -444,6 +444,24 @@ turn. A session opened before a plugin upgrade has no bridge; archive and reopen
 `client/manage/overview.tsx` shows command, version, availability, model count, session directory,
 agent directory, the model catalog from `piStatus`, and shortcuts into the other tabs.
 
+### 3.9 UI conventions
+
+The panel should read as part of Paseo, not as a separate app. `client/manage/shared.tsx` holds the
+only visual primitives: surfaces use `surface1` with a 1px border and 12px radius, rows are
+separated by hairlines, section labels are 13px muted sentence case, body text is 14px, and
+monospace paths are 12px with the platform stack. Buttons use quiet outline/ghost variants except
+for one primary action per area; destructive actions use quiet red text, then a filled red button
+after confirmation.
+
+The management page is 820px wide, left aligned to the same 28px gutter as the tab bar (16px in
+Paseo's compact layout). Tabs scroll horizontally on narrow screens and reveal the active tab.
+Rows stack their actions in compact layouts. The plugin UI package has no Switch or Button
+primitive, so the animated switch and buttons are local; do not replace them with `SettingsInput`
+rows, which are full-width settings rows and clip long values.
+
+`client/settings-screen.tsx` (launch settings) uses the same primitives for full-width fields
+instead of the host's `SettingsInput`/`SettingsSwitch`.
+
 ## 4. Data formats and limits
 
 | Thing | Location | Shape / limit |
@@ -506,9 +524,9 @@ Browser QA on the dev daemon: open
 center deep links (`?param.tab=models`), the launch-settings save/revert cycle (including the
 Expose models and Reload command switches), the raw models editor masks, GitHub skill lookup,
 Fetch models, the session list and delete confirmation, the Reload pill on a pi-plugin agent, and
-the console (only Paseo's own Expo warnings should appear). The launch screen must pass `hint`
-directly to `SettingsInput`/`SettingsSwitch`; wrapping an input in `SettingsRow` duplicates labels
-and pushes the control out of the row.
+the console (only Paseo's own Expo warnings should appear). Check both Paseo themes and a
+390px-wide viewport. The launch screen uses the same primitives as the management panel; keep its
+fields full width.
 
 An intermittent upstream 400 (`chat message role 'developer' is not supported by the router gRPC
 frontend`) can kill a run and leave an empty assistant message with `stopReason: error` in the

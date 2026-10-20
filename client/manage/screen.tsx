@@ -1,5 +1,5 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { ModelsTab } from "./models";
 import { OverviewTab } from "./overview";
@@ -27,14 +27,27 @@ function isTab(value: string | undefined): value is TabId {
 export function PiManageScreen({
 	theme,
 	params,
+	layout,
 	openSettings,
 }: PluginScreenProps & { openSettings(): void }) {
-	const styles = useStyles(theme);
+	const styles = useStyles(theme, layout.compact);
 	const initial = isTab(params.tab) ? params.tab : "overview";
 	const [tab, setTab] = useState<TabId>(initial);
+	const [focusedTab, setFocusedTab] = useState<TabId | null>(null);
+	const tabScroll = useRef<ScrollView>(null);
+	const pageScroll = useRef<ScrollView>(null);
+	const tabOffsets = useRef<Partial<Record<TabId, number>>>({});
+	const revealTab = (id: TabId) => {
+		const x = tabOffsets.current[id];
+		if (x !== undefined) tabScroll.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
+	};
 	useEffect(() => {
 		if (isTab(params.tab)) setTab(params.tab);
 	}, [params.tab]);
+	useEffect(() => {
+		revealTab(tab);
+		pageScroll.current?.scrollTo({ y: 0, animated: false });
+	}, [tab]);
 	const content = useMemo(() => {
 		switch (tab) {
 			case "resources":
@@ -53,29 +66,55 @@ export function PiManageScreen({
 	}, [openSettings, styles, tab, theme]);
 
 	return (
-		<View style={{ flex: 1, gap: 10 }}>
+		<View style={{ flex: 1 }}>
+			<View style={styles.tabBar}>
+				<ScrollView
+					ref={tabScroll}
+					horizontal
+					showsHorizontalScrollIndicator={false}
+					style={{ flexGrow: 0, flexShrink: 0 }}
+					contentContainerStyle={styles.tabBarContent}
+				>
+					{TABS.map((entry) => (
+						<Pressable
+							key={entry.id}
+							accessibilityRole="tab"
+							accessibilityState={{ selected: tab === entry.id }}
+							aria-selected={tab === entry.id}
+							focusable
+							onPress={() => {
+								if (entry.id === tab) {
+									pageScroll.current?.scrollTo({ y: 0, animated: true });
+									return;
+								}
+								setTab(entry.id);
+							}}
+							onFocus={() => setFocusedTab(entry.id)}
+							onBlur={() => setFocusedTab(null)}
+							onLayout={(event) => {
+								tabOffsets.current[entry.id] = event.nativeEvent.layout.x;
+								if (entry.id === tab) revealTab(entry.id);
+							}}
+							style={[
+								styles.tab,
+								focusedTab === entry.id ? styles.tabFocused : null,
+								tab === entry.id ? styles.tabActive : null,
+							]}
+						>
+							<Text style={tab === entry.id ? styles.tabTextActive : styles.tabText}>
+								{entry.label}
+							</Text>
+						</Pressable>
+					))}
+				</ScrollView>
+			</View>
 			<ScrollView
-				horizontal
-				showsHorizontalScrollIndicator={false}
-				style={{ flexGrow: 0, flexShrink: 0 }}
-				contentContainerStyle={{ gap: 16, paddingBottom: 2 }}
-			>
-				{TABS.map((entry) => (
-					<Pressable
-						key={entry.id}
-						onPress={() => setTab(entry.id)}
-						style={[styles.tab, tab === entry.id ? styles.tabActive : null]}
-					>
-						<Text style={tab === entry.id ? styles.tabTextActive : styles.tabText}>{entry.label}</Text>
-					</Pressable>
-				))}
-			</ScrollView>
-			<ScrollView
+				ref={pageScroll}
 				style={{ flex: 1 }}
-				contentContainerStyle={styles.page}
+				contentContainerStyle={styles.scroll}
 				keyboardShouldPersistTaps="handled"
 			>
-				{content}
+				<View style={styles.page}>{content}</View>
 			</ScrollView>
 		</View>
 	);

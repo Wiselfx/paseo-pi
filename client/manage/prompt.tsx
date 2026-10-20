@@ -1,5 +1,5 @@
 import { useRpc } from "@getpaseo/plugin/client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import {
 	piReadPromptRpc,
@@ -11,6 +11,8 @@ import {
 	Card,
 	ConfirmButton,
 	Notice,
+	Section,
+	Segmented,
 	TextArea,
 	type ManageStyles,
 } from "./shared";
@@ -27,18 +29,32 @@ export function PromptTab({ styles }: { styles: ManageStyles }) {
 	const [error, setError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [loading, setLoading] = useState(true);
+	const loadSeq = useRef(0);
 
 	const load = async (nextKind = kind) => {
+		const seq = ++loadSeq.current;
 		setError(null);
+		setNotice(null);
+		setLoading(true);
+		setPath("");
+		setRevision(null);
+		setContent("");
+		setSaved("");
+		setExists(false);
 		try {
 			const data = await readRpc({ kind: nextKind });
+			if (seq !== loadSeq.current) return;
 			setPath(data.path);
 			setRevision(data.revision);
 			setContent(data.content);
 			setSaved(data.content);
 			setExists(data.exists);
 		} catch (failure) {
+			if (seq !== loadSeq.current) return;
 			setError(failure instanceof Error ? failure.message : String(failure));
+		} finally {
+			if (seq === loadSeq.current) setLoading(false);
 		}
 	};
 
@@ -71,57 +87,89 @@ export function PromptTab({ styles }: { styles: ManageStyles }) {
 
 	return (
 		<>
-			<Card styles={styles} title="System prompt">
-				<Text style={styles.muted}>
-					APPEND_SYSTEM.md adds instructions to pi's default prompt. SYSTEM.md replaces it. Both are read from
-					the pi agent directory; the project's .pi versions take precedence when a project is trusted.
-				</Text>
-				<View style={styles.wrap}>
-					<Button
-						styles={styles}
-						label="APPEND_SYSTEM.md"
-						primary={kind === "append"}
-						onPress={() => setKind("append")}
-					/>
-					<Button styles={styles} label="SYSTEM.md" primary={kind === "system"} onPress={() => setKind("system")} />
-				</View>
-				<Text style={styles.mono}>{path}</Text>
-				{kind === "system" ? (
-					<Notice
-						styles={styles}
-						tone="warning"
-						message="SYSTEM.md replaces pi's entire default system prompt. Prefer APPEND_SYSTEM.md unless you intend that."
-					/>
-				) : null}
-				<Notice styles={styles} message={error} tone="error" />
-				<Notice styles={styles} message={notice} tone="ok" />
-				<TextArea
-					styles={styles}
-					value={content}
-					onChangeText={setContent}
-					minHeight={280}
-					placeholder={kind === "append" ? "Additional instructions for every pi session." : "Replacement system prompt."}
-				/>
-				<View style={styles.wrap}>
-					<Button
-						styles={styles}
-						label={busy ? "Saving..." : dirty ? "Save prompt" : exists ? "Saved" : "Create file"}
-						primary
-						disabled={busy || !dirty}
-						onPress={() => void save(content)}
-					/>
-					<Button styles={styles} label="Reload" onPress={() => void load()} disabled={busy || dirty} />
-					{exists ? (
-						<ConfirmButton
+			<Section
+				styles={styles}
+				title="Prompt file"
+				hint={path || "Read from the pi agent directory"}
+			>
+				<Card styles={styles}>
+					<View style={styles.form}>
+						<View style={styles.inline}>
+							<Segmented<PiPromptKind>
+								styles={styles}
+								value={kind}
+								disabled={busy || loading}
+								options={[
+									{ value: "append", label: "APPEND_SYSTEM.md" },
+									{ value: "system", label: "SYSTEM.md" },
+								]}
+								onChange={setKind}
+							/>
+							<Text style={styles.small}>
+								{loading
+									? "Reading…"
+									: exists
+										? dirty
+											? "Unsaved changes"
+											: "Saved"
+										: "Not created yet"}
+							</Text>
+						</View>
+						<Text style={styles.muted}>
+							APPEND_SYSTEM.md adds instructions to pi's default prompt. SYSTEM.md replaces it. Both
+							are read from the agent directory; a project's .pi versions take precedence when the
+							project is trusted.
+						</Text>
+						{kind === "system" ? (
+							<Notice
+								styles={styles}
+								tone="warning"
+								message="SYSTEM.md replaces pi's entire default system prompt. Prefer APPEND_SYSTEM.md unless you intend that."
+							/>
+						) : null}
+						<Notice styles={styles} message={error} tone="error" />
+						<Notice styles={styles} message={notice} tone="ok" />
+						<TextArea
 							styles={styles}
-							label="Clear file"
-							confirmLabel="Confirm clear"
-							disabled={busy}
-							onConfirm={() => void save("")}
+							value={content}
+							onChangeText={setContent}
+							minHeight={320}
+							accessibilityLabel={kind === "append" ? "APPEND_SYSTEM.md content" : "SYSTEM.md content"}
+							placeholder={
+								kind === "append"
+									? "Additional instructions for every pi session."
+									: "Replacement system prompt."
+							}
 						/>
-					) : null}
-				</View>
-			</Card>
+						<View style={styles.formFooter}>
+							<Button
+								styles={styles}
+								label={busy ? "Saving…" : exists ? "Save prompt" : "Create file"}
+								variant="primary"
+								loading={busy}
+								disabled={!dirty || !revision || busy || loading}
+								onPress={() => void save(content)}
+							/>
+							<Button
+								styles={styles}
+								label="Reload"
+								variant="ghost"
+								onPress={() => void load()}
+								disabled={busy || loading || dirty}
+							/>
+							{exists ? (
+								<ConfirmButton
+									styles={styles}
+									label="Clear file"
+									confirmLabel="Confirm clear"
+									disabled={busy || loading || !revision}
+									onConfirm={() => void save("")}
+								/>
+							) : null}
+						</View>
+					</View>
+				</Card>
+			</Section>
 		</>
 	);
 }
