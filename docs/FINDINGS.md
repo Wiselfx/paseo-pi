@@ -27,10 +27,11 @@ Paseo 0.12 already runs pi natively. The implementation is in
 `usage-poller.js`, `session-descriptor.js`, `rpc-types.js`, and an `extensions/` folder. It owns the
 agent loop, history mapping, rewind, usage polling, and its own pi extension for host dialogs.
 
-Consequence: this plugin must be an **enhancement**, not a replacement. It registers a second
-provider (`pi-plugin`) whose job is the same RPC bridge plus the management surface Paseo's
-built-in provider does not have. Do not try to re-register the id `pi`; providers are separate
-entries and both can be enabled.
+Consequence: this plugin must be an **enhancement**, not a replacement. The original build
+registered a second provider (`pi-plugin`) with the same RPC bridge plus the management surface.
+That provider is now unregistered: built-in `pi` sessions discover the plugin's generated
+`extensions/paseo-pi-reload.ts`, so `/reload` works without a second provider. Do not try to
+re-register the id `pi`; providers are separate entries.
 
 ### 1.3 The plugin SDK
 
@@ -86,8 +87,8 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 
 ## 2. Gotchas and traps
 
-1. **Paseo already ships `pi`.** The plugin's provider is `pi-plugin`; nothing should assume it owns
-   the id `pi`. Both providers can be enabled and the UI distinguishes them.
+1. **Paseo already ships `pi`.** The plugin originally registered `pi-plugin`; it no longer does.
+   Nothing should assume it owns the id `pi`; built-in `pi` is Paseo's provider.
 2. **Settings ids are validated.** `registerSettings`/`addSettingsScreen` ids must match
    `^[a-z][a-z0-9_-]*$`; a dot fails with "Invalid settings ID". Screen ids (`pi-config`,
    `pi-launch`) and the settings id (`paseo-pi-launch`) are separate namespaces.
@@ -135,9 +136,10 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 19. **There is no pi session-reload RPC, but extension commands get `session.reload()`.** RPC mode
     dispatches no reload command; `commandContextActions.reload` in `rpc-mode.ts` hands it to
     `AgentSession.reload()`, so a session must load an extension that registers the command. The
-    plugin writes one (`server/provider/reload-extension.ts`) and passes it as an explicit
-    `--extension`, which pi keeps even under `--no-extensions`. "Reload sessions" in the management
-    tab still just re-reads the files.
+    plugin writes one (`server/provider/reload-extension.ts`) and installs it as
+    `extensions/paseo-pi-reload.ts` for built-in pi sessions. Do not also pass it as an explicit
+    `--extension`: two copies register `reload:1`/`reload:2` and `/reload` stops working. "Reload
+    sessions" in the management tab still just re-reads the files.
 20. **A running session keeps its loaded extensions.** Toggling extensions or built-ins affects new
     sessions only, unless that session runs `/reload`.
 21. **Revisions are per file.** Every read-modify-write carries a SHA-256 of the file text
@@ -187,10 +189,9 @@ That storage difference is why the parity map says "pi equivalent", not "same im
     item. Retry once or twice; it is not caused by this plugin.
 
 36. **Paseo does not dedupe models across providers.** Two providers advertising the same
-    `${provider}/${modelId}` both appear in the model browser. A provider with `models: []` is still
-    ready and can create agents (normal creation does not validate against the catalog), so the
-    plugin advertises none unless `exposeModels` is on. No registration flag hides a provider while
-    keeping it usable.
+    `${provider}/${modelId}` both appear in the model browser. This is one reason the plugin stopped
+    registering a provider. The legacy bridge still advertises none unless `exposeModels` is on; a
+    provider with `models: []` is ready and can create agents.
 37. **The plugin server bundle is CommonJS, not a module.** `import.meta.url` is `undefined` and
     `import.meta.resolve` does not exist, so `createRequire(import.meta.url)` fails. Resolve from
     `process.argv[1]` (the daemon's `plugin-process.js`): `createRequire(process.argv[1]).resolve(

@@ -1,10 +1,10 @@
 # paseo-pi: build and operations guide
 
-`@wiselfx/paseo-pi` is a Paseo plugin that (a) registers a provider for the pi coding agent and
-(b) adds the management surface around it. Paseo 0.12 already ships a built-in `pi` provider; this
-plugin does not replace it. It adds a provider of its own (`pi-plugin`) plus RPCs and a panel that
-edit pi's own files: extensions and packages, skills, settings, prompt, providers and models, and
-sessions.
+`@wiselfx/paseo-pi` is a Paseo plugin that adds the management surface around the pi coding
+agent. Paseo 0.12 already ships a built-in `pi` provider; this plugin uses it and does not register
+a second provider. It adds RPCs and a panel that edit pi's own files: extensions and packages,
+skills, settings, prompt, providers and models, and sessions. It also installs a small generated
+extension so built-in pi sessions expose `/reload`.
 
 Everything in this document was verified against the code in this repository and the SDK version it
 depends on (`@getpaseo/plugin` 0.12.0). File paths are relative to the repository root unless
@@ -15,17 +15,18 @@ stated otherwise.
 | Path | What it is |
 |---|---|
 | `paseo-plugin.json` | Plugin manifest: id `paseo-pi`, requires Paseo `^0.12.0`. |
-| `index.server.ts` | Server entry: registers the provider, all management RPCs, and the settings. |
+| `index.server.ts` | Server entry: registers management RPCs and settings, and syncs the built-in `/reload` extension. |
 | `index.client.tsx` | Client entry: sidebar row, management screen, launch-settings screen, command-center items. |
 | `shared/` | Zod contracts shared by client and server; no runtime state. |
-| `shared/constants.ts` | IDs: plugin `paseo-pi`, provider `pi-plugin`, screen `pi-config`, launch settings `paseo-pi-launch`, persistence version `1`. |
-| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, the context/MCP toggles, `reloadCommand`, `exposeModels`). |
+| `shared/constants.ts` | IDs: plugin `paseo-pi`, built-in provider `pi`, legacy provider `pi-plugin`, screen `pi-config`, launch settings `paseo-pi-launch`, persistence version `1`. |
+| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, the context/MCP toggles, `reloadCommand`). |
+| `server/builtin-reload.ts` | Installs/removes `extensions/paseo-pi-reload.ts` for built-in pi sessions. |
 | `shared/source.ts` | Normalises a pasted `pi install …` command to its package source. |
 | `shared/rpc.ts` | Status/refresh RPCs. |
 | `shared/management.ts` | One RPC per management operation, all schemas and limits, `PI_MODELS_SECRET_MASK`. |
 | `server/paths.ts` | Resolves the pi agent directory. |
-| `server/provider/registration.ts` | Provider registration and availability status. |
-| `server/provider/connection.ts` | Provider connection: catalog, session dispatch, session map. |
+| `server/provider/registration.ts` | Legacy provider registration and availability status (not registered). |
+| `server/provider/connection.ts` | Legacy provider connection: catalog, session dispatch, session map. |
 | `server/provider/rpc.ts` | One `pi --mode rpc` child, JSONL framing, request/response and events. |
 | `server/provider/session.ts` | Session state machine, pi command calls, timeline translation. |
 | `server/provider/options.ts` | Launch precedence and RPC argument construction. |
@@ -39,7 +40,7 @@ stated otherwise.
 | `server/pi-status.ts` | Host status probe and model catalog for the Overview tab. |
 | `client/manage/` | The management panel, split by tab. |
 | `client/settings-screen.tsx` | The host-scoped `pi-launch` settings screen. |
-| `client/reload-pill.tsx` | The **Reload** composer pill for pi-plugin agents. |
+| `client/reload-pill.tsx` | The **Reload** composer pill for built-in `pi` (and legacy `pi-plugin`) agents. |
 | `tests/` | Vitest unit tests (`tests/fixtures/fake-pi.mjs` is the RPC test double). |
 | `scripts/` | Live smoke scripts, including `smoke-reload.ts`. |
 
@@ -55,15 +56,22 @@ Server (`index.server.ts`, default export `contribute(server)`):
 2. `readSettings()` reads them; invalid or missing settings fall back to `PI_SETTINGS_DEFAULTS`.
 3. `context()` builds a `ManagementContext` per call: settings, resolved session directory, agent
    directory, and a copy of the process environment with `PI_CODING_AGENT_DIR` pinned.
-4. `server.registerProvider(createPiProvider(...))` registers `pi-plugin`.
-5. `server.handle(rpc, handler)` registers one handler per management RPC.
+4. `ensureBuiltinReloadExtension()` runs on startup and whenever launch settings change. With
+   `reloadCommand` on it writes `extensions/paseo-pi-reload.ts`; with it off it removes only that
+   generated file. A user file with the same name is never touched.
+5. `server.handle(rpc, handler)` registers one handler per management RPC. No provider is
+   registered.
 
 Client (`index.client.tsx`, default export `contribute(client)`): adds the `Pi` sidebar row, the
 `srv_*/plugin/paseo-pi/surface/pi-config` screen, the `pi-launch` settings screen, and four
 command-center items (`Manage Pi`, `Pi providers & models`, `Pi sessions`, `Configure Pi launch`).
 The return value removes everything on unload.
 
-### 2.2 Provider lifecycle
+### 2.2 Legacy provider bridge (not registered)
+
+The following four sections describe `server/provider/`, kept for the legacy `pi-plugin` code and
+its tests. New sessions use Paseo's built-in `pi` provider; `registration.ts` and `connection.ts`
+are no longer called by `index.server.ts`.
 
 `server/provider/registration.ts` returns a `ProviderRegistration`:
 
@@ -160,21 +168,23 @@ per-agent env or process env, then `<agentDir>/sessions`.
 
 ```
 Paseo host
+  ├── built-in provider "pi" ──> `pi --mode rpc` child
+  │        └── discovers ~/.pi/agent/extensions/paseo-pi-reload.ts (/reload)
   ├── side bar / command center ──> client/manage/screen.tsx ──> useRpc(...) ─┐
   │                                                                           │
-  └── provider "pi-plugin" <── createPiConnection <── registration.ts        │
-            │ catalog/sessions/session.*                                      │
-            ├── server/sessions.ts  (session list)                            │
-            └── PiSession ── PiRpc ──> `pi --mode rpc` child                  │
+  └── index.server.ts handlers ──> server/management.ts                      │
+                                       ├── settings.json                     │
+                                       ├── models.json                       │
+                                       ├── SYSTEM.md / APPEND_SYSTEM.md      │
+                                       ├── skills/                           │
+                                       ├── sessions/*.jsonl                  │
+                                       └── `pi install|update|remove`        │
                                                                               ▼
-                                     index.server.ts handlers ──> server/management.ts
-                                                                     ├── settings.json
-                                                                     ├── models.json
-                                                                     ├── SYSTEM.md / APPEND_SYSTEM.md
-                                                                     ├── skills/
-                                                                     ├── sessions/*.jsonl
-                                                                     └── `pi install|update|remove`
+                                             management RPCs return to the panel
 ```
+
+The legacy bridge (`createPiConnection` → `PiSession` → `PiRpc`) is still in the tree and tested,
+but `index.server.ts` does not register it.
 
 ## 3. Feature reference
 
@@ -364,12 +374,10 @@ capped at 2 MB and mapped to id, label, vision, reasoning, context and output li
 `addModels` applies one revision-checked mutation, skips ids that already exist, and returns how
 many were added and skipped.
 
-**No duplicate catalog.** Paseo's built-in `pi` provider already publishes pi's models, and Paseo
-does not dedupe across providers, so listing them twice doubles every entry in the model browser.
-`server/provider/connection.ts` therefore answers `catalog` with `models: []` and no
-`defaultModel` unless the host setting `exposeModels` is true; pi still starts on its configured
-default, and Paseo's creation path accepts a provider with no advertised models. The Overview tab
-and the models tab both say where the list lives.
+**One catalog.** Paseo's built-in `pi` provider publishes pi's models. The plugin does not register
+a provider, so there is no duplicate model list and no `exposeModels` switch. The legacy
+`server/provider/connection.ts` still answers `catalog` with `models: []` unless its own
+`exposeModels` flag is set, but that code is only exercised by tests.
 
 Client: `client/manage/models.tsx`: provider form, model form, per-provider and per-model
 Edit/Delete, the raw `models.json` editor, and **Fetch models** → filter → **Select all shown** /
@@ -384,9 +392,9 @@ individual toggles → **Add selected**.
 | `paseo-pi.list-sessions` | `{ cwd?, query?, limit? }` → `{ sessionDir, sessions[] }` |
 | `paseo-pi.delete-session` | `{ sessionFile }` → `{ sessionFile, deletedAgents }` |
 
-The provider also implements `session.list` for Paseo's own pickers via the same
-`listPiSessions`. `server/sessions.ts` walks the session directory (depth 3, 5000 files), reads at
-most 8 MB per file, takes `id`/`cwd` from the first `type: "session"` record, prefers
+The legacy provider also implements `session.list` for Paseo's own pickers via the same
+`listPiSessions`; built-in `pi` uses Paseo's own session handling. `server/sessions.ts` walks the
+session directory (depth 3, 5000 files), reads at most 8 MB per file, takes `id`/`cwd` from the first `type: "session"` record, prefers
 `session_info.name`, falls back to the first user text (160 chars), and returns newest first
 (limit clamped 1..200; the panel asks for 100). Filters are exact `cwd` and a case-insensitive
 substring over title/id/cwd/path.
@@ -413,31 +421,31 @@ reloads resources inside a live session (next section).
 ### 3.7 Reload
 
 pi's RPC mode has no reload request, but extension commands run inside the session and receive
-`ctx.reload()`. The provider ships that bridge:
+`ctx.reload()`. The plugin ships that bridge as a discovered extension:
 
 - `server/provider/reload-extension.ts` holds a one-command extension (`registerCommand("reload")`
-  → `ctx.reload()`) and writes it to
-  `<tmpdir>/paseo-pi/reload-command-<sha256[0:12]>.mjs` (directory 0700, file 0600, one file per
-  content hash). Every child gets it through `--extension`, unless `reloadCommand` is off.
-- Typing `/reload` in a pi-plugin chat is intercepted in `PiSession.prompt` (steer messages are
-  passed through untouched) and sent to the child as an RPC `prompt` with the message `/reload`.
-  The provider requires `disposition: "handled"`, drops the queued user entry, and emits a
-  `completed` prompt result, so no assistant turn appears.
-- The **Reload** composer pill appears for every idle pi-plugin agent
-  (`client/reload-pill.tsx`); it simply sends `/reload` to that agent, and is disabled while the
-  agent runs.
-- `PiSession.reload` refuses while streaming (`Wait for the current turn to finish before
-  reloading`) and when the command is unavailable (for example `reloadCommand: false`,
-  `The pi reload command is not available for this session`).
+  → `ctx.reload()`). `server/builtin-reload.ts` writes the same source to
+  `~/.pi/agent/extensions/paseo-pi-reload.ts` (file 0600).
+- Built-in pi sessions discover it on start and list `/reload` in `get_commands`. Typing `/reload`
+  runs pi's own command, which reloads settings, API providers, extensions, skills, prompts, themes
+  and context files.
+- The **Reload** composer pill appears for every idle built-in `pi` agent, and for legacy
+  `pi-plugin` agents (`client/reload-pill.tsx`); it simply sends `/reload`, and is disabled while
+  the agent runs.
+- Turning **Reload command** off in the Pi launch settings removes the generated file. Turning it
+  back on writes it again. The file also appears under **Extensions & skills** as **paseo-pi
+  reload**, so pi's normal `-path` switch can disable it without deleting it.
+- A session opened before the extension was installed has no reload command; archive and reopen
+  it.
 
-After pi reloads, the provider re-reads `get_state`, thinking levels, `get_available_models` and
-`get_commands`, emits `session.config`, `session.commands`, then a `Reloaded pi resources` notice.
+The legacy `pi-plugin` provider still intercepts `/reload` in `PiSession.prompt`, checks
+`disposition: "handled"`, and emits a `Reloaded pi resources` notice. That path only applies to old
+agents. After a legacy reload, the provider re-reads `get_state`, thinking levels,
+`get_available_models` and `get_commands`, then emits `session.config` and `session.commands`.
+
 pi itself reloads settings (including `defaultTools`), API providers, and the resource loader:
 extensions, skills, prompts, themes and context files. That is the same path as the interactive
 `/reload`, and it requires an idle session.
-
-The timeline gets the `/reload` user message and the notice, tied to a synthetic `command-<id>`
-turn. A session opened before a plugin upgrade has no bridge; archive and reopen it.
 
 ### 3.8 Overview
 
@@ -493,14 +501,15 @@ NODE_OPTIONS= ./node_modules/.bin/vitest run
 | `tests/timeline.test.ts` | Text/thinking/tool-call blocks, typed tool details (shell/read/edit/write/search), plain-text fallback. |
 | `tests/sessions.test.ts` | Listing order and titles, cwd/query filters, limit, missing directory, persistence acceptance/rejection, session directory precedence including custom agent dirs. |
 | `tests/reload.test.ts` | The generated extension is private (`0600`) and calls `ctx.reload()`, the path is stable, and only the bare `/reload` is recognized. |
-| `tests/reload-pill.test.ts` | The pill appears only for idle pi-plugin agents, sends `/reload`, disables while running, re-scopes on a workspace move, and cleans up. |
+| `tests/reload-pill.test.ts` | The pill appears for built-in `pi` and legacy `pi-plugin` agents, sends `/reload`, disables while running, re-scopes on a workspace move, and cleans up. |
+| `tests/builtin-reload.test.ts` | The generated extension installs idempotently, is removed only when it carries the plugin marker, and never overwrites a user file. |
 | `tests/source.test.ts` | Pasted `pi install`/`pi add`, shell prompt, quotes and backticks normalise to the bare package source; paths are not mistaken for packages. |
 | `tests/skill-source.test.ts` | GitHub link forms, SKILL.md frontmatter (quotes, block scalars), repository scans with a fake `fetch`, per-file tolerance, rate-limit and empty-repo errors, and installs that write `SKILL.md` with mode 0600 and refuse duplicates. |
 | `tests/model-source.test.ts` | OpenAI/Anthropic/Google endpoint, headers and query keys; `$ENV` expansion; vision/reasoning/context mapping; 401, non-JSON, missing base URL and missing provider errors. |
-| `tests/connection-catalog.test.ts` | The catalog is empty without `exposeModels` (and does not even ask pi for models), and contains pi's models with it. |
+| `tests/connection-catalog.test.ts` | The legacy bridge: catalog empty without `exposeModels` (and does not even ask pi for models), and contains pi's models with it. |
 | `tests/management.test.ts` | Settings read/save/stale revision, resource listing, provider/model CRUD without key disclosure, raw JSON revisions, secret masking/restore, prototype-named providers, duplicate/missing providers, model limit clearing, skill create/delete, per-skill and per-extension toggles that leave their neighbours alone, prompt write/clear, session listing and confined delete, and mapping a session file to Paseo agent ids. |
 
-Current result: **12 files, 86 tests passed**, `tsc --noEmit` exit 0.
+Current result: **13 files, 90 tests passed**, `tsc --noEmit` exit 0.
 
 Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARGS`,
 `PI_SMOKE_DIR`, `PI_SMOKE_MODEL`, `PI_SMOKE_CWD`):
@@ -513,18 +522,18 @@ Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARG
 | `smoke-list.ts` | `listPiSessions` finds files in the smoke directory. |
 | `smoke-reload.ts` | Against a real pi child with a throwaway agent dir: `/reload` is a listed command, picks up a skill created after open, and is refused when `reloadCommand` is off. |
 | `smoke-toggles.ts` | A real pi child with a throwaway agent dir: a `-<SKILL.md>` marker hides one skill, a `-<extension>` marker hides one extension, and removing the markers loads both again while the other skill stays on. |
-| `smoke-paseo.ts` | Against a running daemon: provider availability, no catalog by default (or a chosen model with `PI_SMOKE_EXPOSE_MODELS=1`), an agent that finishes with a visible reply, and (for `pi-plugin`) the listed reload command plus its notice. |
+| `smoke-paseo.ts` | Against a running daemon: built-in `pi` availability and model, an agent that finishes with a visible reply, the listed `/reload` command, and an accepted reload. |
 
 Run with `NODE_OPTIONS= bun scripts/smoke-*.ts`. `smoke-paseo` defaults to
-`ws://127.0.0.1:39085/ws`, provider `pi-plugin`, and model `Zen/deepseek-v4.1-flash-free`; set
+`ws://127.0.0.1:39085/ws`, provider `pi`, and model `Zen/deepseek-v4.1-flash-free`; set
 `PASEO_URL`, `PASEO_PI_PROVIDER`, and `PI_SMOKE_MODEL` to point elsewhere.
 
 Browser QA on the dev daemon: open
 `http://127.0.0.1:39085/h/<server>/plugin/paseo-pi/surface/pi-config`, then check tabs, command
 center deep links (`?param.tab=models`), the launch-settings save/revert cycle (including the
-Expose models and Reload command switches), the raw models editor masks, GitHub skill lookup,
-Fetch models, the session list and delete confirmation, the Reload pill on a pi-plugin agent, and
-the console (only Paseo's own Expo warnings should appear). Check both Paseo themes and a
+Reload command switch), the raw models editor masks, GitHub skill lookup, Fetch models, the session
+list and delete confirmation, the Reload pill on a built-in `pi` agent, and the console (only
+Paseo's own Expo warnings should appear). Check both Paseo themes and a
 390px-wide viewport. The launch screen uses the same primitives as the management panel; keep its
 fields full width.
 
@@ -539,9 +548,9 @@ session JSONL. It is provider-side; retry the same step once before investigatin
 | `... changed on disk. Reload and try again.` | Revision guard working as designed | The tab's Reload button; whether another editor touched the file | `readJsonObject` / `readPrompt` in `server/management.ts` |
 | `models.json is not valid JSON` | File on disk, not the UI | `readPiModels`; `models.json` syntax | `mutateModels`, `saveModelsJson` |
 | `Provider X is not in models.json` | Provider was deleted or renamed elsewhere | `providersView`, `saveProvider`/`saveModel` | `server/management.ts` |
-| `Pi executable not found` | Launch settings or PATH | `pi-launch` command; run `pi --version` in the daemon environment | `server/provider/registration.ts`, `server/pi-status.ts` |
-| Catalog empty in Paseo | Working as designed: the built-in `pi` provider owns the list | The `exposeModels` switch; `get_available_models` in a manual RPC child | `connection.ts` catalog, `shared/settings.ts` |
-| `pi reported no models` (only when exposing) | pi config, not the plugin | `pi --mode rpc --no-session` plus `get_available_models`; `models.json` | `server/provider/models.ts`, `connection.ts` catalog |
+| `Pi executable not found` | Launch settings or PATH | `pi-launch` command; run `pi --version` in the daemon environment | `server/pi-status.ts` |
+| Catalog empty in Paseo | pi config, not the plugin | `pi --mode rpc --no-session` plus `get_available_models`; `models.json` | `server/pi-status.ts` |
+| `/reload` missing in a built-in chat | The extension was not installed when the session opened | Turn **Reload command** on; archive and reopen the agent | `server/builtin-reload.ts` |
 | Thinking level missing for a model | The model's own capability map | `get_available_thinking_levels`; model `reasoning` | `server/provider/models.ts`, `session.ts` open step |
 | `Unknown Pi session` | Session id no longer open | Whether the child exited (stderr in the daemon log) | `connection.ts` dispatch, `PiSession` exit listener |
 | Package install/update fails | pi's installer, not the plugin | The error text (returned verbatim); source prefix rules | `runPi`, `validatePackageSource` |

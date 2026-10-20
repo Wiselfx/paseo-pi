@@ -58,7 +58,7 @@ pi storage used by this plugin:
 | Hub processes | Local Hub process list/popover | No pi equivalent | N/A |
 | Memory panel | Local memory browser | pi-memory is a separate package; no pi-native memory API | N/A |
 | Quotas | Provider quota snapshots | No pi-native quota API | N/A |
-| Composer pills | Per-agent MCP/hub/memory/sessions/quota | One **Reload** pill per pi-plugin agent; everything else stays in the Pi screen | Partial, deliberate |
+| Composer pills | Per-agent MCP/hub/memory/sessions/quota | One **Reload** pill per built-in `pi` agent (also legacy `pi-plugin`); everything else stays in the Pi screen | Partial, deliberate |
 | Tool policy boundary | Disallowed native tools, fail-closed preapproval | Provider rejects session tool policies rather than broadening them | N/A (deliberate) |
 | Timeline transforms | omp image tool rendering, MCP auth card | None; pi tool calls already render through the standard timeline | N/A |
 | Multiple stores/profiles | omp store picker | One pi agent directory, selected by `PI_CODING_AGENT_DIR` | N/A |

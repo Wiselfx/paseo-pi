@@ -1,6 +1,7 @@
 # TODO: make paseo-pi management-only
 
-Status: planned, not started. Written 2026-10-20.
+Status: implemented. Written 2026-10-20; built-in `/reload` proven and `pi-plugin` registration
+removed the same day.
 
 ## Decision
 
@@ -24,7 +25,7 @@ These are provider-independent today and must survive the change:
 - Sessions: list/filter by cwd and query, reload, delete the JSONL and the matching Paseo agent.
 - Settings: common fields, raw `settings.json`, revision checks.
 - Launch settings: command, args, inherited env, session directory, read-context-files,
-  use-MCP-servers, reload-command, expose-models.
+  use-MCP-servers, reload-command.
 - `/reload` in a running pi chat, plus the Reload composer pill.
 - The management UI and command-center entries.
 
@@ -38,12 +39,13 @@ provider-specific pieces are:
 - Running pi sessions through this plugin and their persistence/timeline bridge.
 - The Reload composer pill (`client/reload-pill.tsx`) filters on `PI_PROVIDER_ID`, so it only
   appears on `pi-plugin` agents.
-- The generated reload extension (`server/provider/reload-extension.ts`) is passed to sessions
-  started by our provider with `--extension`.
+- The generated reload extension (`server/provider/reload-extension.ts`) was passed to sessions
+  started by our provider with `--extension`; the legacy bridge still does this in tests.
 
-Paseo's built-in `pi` sessions do not load that generated extension today.
+Paseo's built-in `pi` sessions now discover the generated extension from the agent extensions
+directory; no provider is needed.
 
-## Plan
+## Plan (completed)
 
 ### 1. Prove `/reload` on the built-in pi provider
 
@@ -64,6 +66,11 @@ Paseo's built-in `pi` sessions do not load that generated extension today.
   possibly `pi/…` variants). Keep `pi-plugin` support until migration is finished.
 - Keep the pill disabled while the agent is running, as it is now.
 
+Result: PASS with a throwaway agent dir. The extension works both as an explicit
+`settings.extensions` path and as a discovered `.ts` file under `extensions/`; a `-path` marker
+disables it. Duplicate copies produce `reload:1`/`reload:2` and break `/reload`, so only one copy
+may be loaded.
+
 ### 2. If the built-in path works
 
 - Stop registering `pi-plugin` in `index.server.ts`. Keep every management RPC and client
@@ -76,6 +83,12 @@ Paseo's built-in `pi` sessions do not load that generated extension today.
 - Update tests/smokes that assume `PI_PROVIDER_ID` or `pi-plugin`.
 - Acceptance: no duplicate provider in Paseo, all management flows pass, and `/reload` works on
   a built-in pi agent.
+
+Result: implemented. `server/builtin-reload.ts` installs `extensions/paseo-pi-reload.ts` when
+`reloadCommand` is on and removes only its own generated file when off. `index.server.ts` no longer
+registers `pi-plugin`. The pill serves built-in `pi` and legacy `pi-plugin` agents. Smoke against
+the dev daemon: built-in `pi` available with 15 models, a visible reply, `/reload` listed and
+accepted.
 
 ### 3. If the built-in path does not work
 

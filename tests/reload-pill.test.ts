@@ -74,14 +74,14 @@ const flush = async () => {
 const upsert = (agent: Agent) => ({ type: "agent_update", payload: { kind: "upsert", agent } });
 const piAgent = (overrides: Partial<Agent> = {}): Agent => ({
 	id: "a",
-	provider: "pi-plugin",
+	provider: "pi",
 	workspaceId: "w",
 	status: "idle",
 	...overrides,
 });
 
 describe("reload composer pill", () => {
-	it("adds a Reload pill to pi-plugin agents and sends /reload", async () => {
+	it("adds a Reload pill to built-in pi agents and sends /reload", async () => {
 		const h = harness();
 		const cleanup = contributeReloadComposerPills(h.client as never);
 		await flush();
@@ -94,13 +94,21 @@ describe("reload composer pill", () => {
 		expect(h.pills[0]!.remove).toHaveBeenCalledOnce();
 	});
 
+	it("keeps the pill for legacy pi-plugin agents", async () => {
+		const h = harness();
+		contributeReloadComposerPills(h.client as never);
+		await flush();
+		h.observer()?.snapshot({ entries: [{ agent: piAgent({ id: "legacy", provider: "pi-plugin" }) }] });
+		expect(h.pills).toHaveLength(1);
+	});
+
 	it("ignores other providers and closed or archived agents", async () => {
 		const h = harness();
 		contributeReloadComposerPills(h.client as never);
 		await flush();
 		h.observer()?.snapshot({
 			entries: [
-				{ agent: piAgent({ id: "other", provider: "pi" }) },
+				{ agent: piAgent({ id: "other", provider: "codex" }) },
 				{ agent: piAgent({ id: "closed", status: "closed" }) },
 				{ agent: piAgent({ id: "archived", archivedAt: "2026-01-01T00:00:00Z" }) },
 				{ agent: piAgent({ id: "no-workspace", workspaceId: null }) },

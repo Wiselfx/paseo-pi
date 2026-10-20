@@ -2,7 +2,7 @@ import type {
 	PluginButtonRegistration,
 	PluginClientContext,
 } from "@getpaseo/plugin/client";
-import { PI_PROVIDER_ID } from "../shared/constants";
+import { PI_BUILTIN_PROVIDER_ID, PI_PROVIDER_ID } from "../shared/constants";
 
 type PillAgent = {
 	id: string;
@@ -20,7 +20,12 @@ type PillEntry = {
 
 function servesReload(agent: PillAgent): boolean {
 	const provider = agent.provider ?? "";
-	return provider === PI_PROVIDER_ID || provider.startsWith(`${PI_PROVIDER_ID}/`);
+	return (
+		provider === PI_BUILTIN_PROVIDER_ID ||
+		provider.startsWith(`${PI_BUILTIN_PROVIDER_ID}/`) ||
+		provider === PI_PROVIDER_ID ||
+		provider.startsWith(`${PI_PROVIDER_ID}/`)
+	);
 }
 
 function canHostPill(agent: PillAgent): agent is PillAgent & { workspaceId: string } {
@@ -28,9 +33,9 @@ function canHostPill(agent: PillAgent): agent is PillAgent & { workspaceId: stri
 }
 
 /**
- * Adds a Reload shortcut to every pi-plugin composer. It sends the same `/reload` the generated
- * extension command answers, so the session reloads its settings, models, extensions and skills
- * without a new session. Requests are answered by a session notice in the timeline.
+ * Adds a Reload shortcut to every pi composer, built-in or legacy pi-plugin. It sends the same
+ * `/reload` the generated extension command answers, so the session reloads its settings, models,
+ * extensions and skills without a new session. Requests are answered by a session notice.
  */
 export function contributeReloadComposerPills(client: PluginClientContext): () => void {
 	const pills = new Map<string, PillEntry>();

@@ -1,5 +1,5 @@
 {
   "id": "paseo-pi",
-  "description": "Paseo integration for Pi: its direct provider, session bridge, and workspace tooling.",
+  "description": "Management surface for the pi coding agent: extensions, skills, providers, models, prompts, sessions, settings, and /reload.",
   "requirements": { "paseo": "^0.12.0" }
 }

@@ -17,6 +17,7 @@ import {
 	type PiSkillEntry,
 } from "../shared/management";
 import type { PiSettings } from "../shared/settings";
+import { PI_RELOAD_EXTENSION_FILE } from "../shared/constants";
 import { listPiSessions } from "./sessions";
 import { piAgentDir } from "./paths";
 import { resolveLaunch } from "./provider/options";
@@ -600,16 +601,19 @@ async function discoveredExtensions(agentDir: string): Promise<PiExtensionEntry[
 	}
 	const output: PiExtensionEntry[] = [];
 	const push = (file: string, label: string) => {
+		const managed = basename(file) === PI_RELOAD_EXTENSION_FILE;
 		output.push({
 			id: `ext-file:${file}`,
 			kind: "extension",
-			label,
+			label: managed ? "paseo-pi reload" : label,
 			source: file,
 			version: null,
 			path: file,
 			enabled: true,
 			removable: false,
-			note: "Discovered in the agent extensions directory",
+			note: managed
+				? "Installed by paseo-pi so /reload works in built-in pi sessions"
+				: "Discovered in the agent extensions directory",
 		});
 	};
 	for (const entry of entries) {

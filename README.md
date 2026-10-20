@@ -14,20 +14,18 @@ built-in `pi` provider; this plugin adds the management surface around it:
 - **Sessions** — list pi session files by working directory or query, refresh, and delete.
   Deleting one also deletes the matching Paseo agent through the Paseo CLI, then removes the
   JSONL file.
-- **Reload** — `/reload` in a pi-plugin chat, or the **Reload** composer pill, reloads pi's
+- **Reload** — `/reload` in a built-in `pi` chat, or the **Reload** composer pill, reloads pi's
   settings, models, extensions, skills, prompts and context files in place.
 - **Settings** — edit common settings or the full `settings.json`.
 
 The management panel follows Paseo's settings vocabulary: grouped cards with hairline dividers,
 muted section labels, inline switches, and a compact single-column layout on phones.
 
-The plugin registers a provider (`pi-plugin`, label **Pi Plugin**) with Paseo. It starts one
-`pi --mode rpc` child per Paseo session and speaks pi's RPC protocol.
-
-The provider advertises **no models by default**: Paseo's built-in `pi` provider already lists
-pi's catalog, and a second copy only clutters the model picker. Agents start on pi's configured
-default model, and Paseo's own "add model" flow still works. Turn on **Expose models** in the Pi
-launch settings if you want a separate model list for this provider.
+The plugin does not register a provider. It installs a small generated extension at
+`~/.pi/agent/extensions/paseo-pi-reload.ts` so Paseo's built-in `pi` sessions expose `/reload`.
+The extension is listed under **Extensions & skills** as **paseo-pi reload**; switch it off there,
+or turn off **Reload command** in the Pi launch settings. The plugin never overwrites a file it did
+not generate.
 
 ## Requirements
 
@@ -50,9 +48,10 @@ command palette.
 ## Configuration
 
 Launch options live in the plugin's `pi-launch` settings screen: command, command-prefix args,
-inherited environment, session directory, context files and MCP switches, **Expose models**, and
-the `/reload` command switch. Extensions and skills are switched on or off one at a time in
-**Extensions & skills**; that is stored as pi's own `-path` markers in `settings.json`. These are host-scoped; a per-agent `providerOptions` override can replace them for one agent.
+inherited environment, session directory, context files, MCP, and the `/reload` command switch.
+Extensions and skills are switched on or off one at a time in **Extensions & skills**; that is
+stored as pi's own `-path` markers in `settings.json`. These are host-scoped; a per-agent launch
+can override the command for one agent.
 
 pi's own files are managed directly:
 
@@ -63,6 +62,7 @@ pi's own files are managed directly:
 | `~/.pi/agent/SYSTEM.md`, `APPEND_SYSTEM.md` | system prompt |
 | `~/.pi/agent/skills/`, `~/.agents/skills/` | skills |
 | `~/.pi/agent/sessions/` | session JSONL files |
+| `~/.pi/agent/extensions/paseo-pi-reload.ts` | generated `/reload` extension |
 
 Set `PI_CODING_AGENT_DIR` to manage a different agent directory.
 

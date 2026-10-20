@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Paseo integration for Pi: a provider, session bridge, and panel for the pi coding agent.",
+  "description": "Management surface for the pi coding agent in Paseo: extensions, skills, providers, models, prompts, sessions and settings.",
   "license": "MIT",
   "engines": {
     "node": ">=22.18.0"

@@ -184,24 +184,6 @@ export function PiSettingsScreen({ theme, layout }: PluginSurfaceProps) {
 				</Card>
 			</Section>
 
-			<Section styles={styles} title="Provider">
-				<Card styles={styles}>
-					<Row
-						styles={styles}
-						title="Expose models"
-						hint="Show pi's models under Pi Plugin. The built-in pi provider already lists them."
-						actions={
-							<Switch
-								styles={styles}
-								label="Expose models"
-								value={values.exposeModels}
-								onChange={(enabled) => update({ exposeModels: enabled })}
-							/>
-						}
-					/>
-				</Card>
-			</Section>
-
 			<Card styles={styles}>
 				<View style={styles.form}>
 					<Notice styles={styles} message={state.saveError} tone="error" />

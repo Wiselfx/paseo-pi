@@ -1,5 +1,4 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { PI_PROVIDER_ID } from "./shared/constants";
 import {
 	piAddExtensionRpc,
 	piCreateSkillRpc,
@@ -61,7 +60,7 @@ import {
 import { fetchProviderModels } from "./server/model-source";
 import { inspectGitHubSkill, installGitHubSkill } from "./server/skill-source";
 import { clearPiStatusCache, piConfigDir, piStatus, piSessionDir } from "./server/pi-status";
-import { createPiProvider } from "./server/provider/registration";
+import { ensureBuiltinReloadExtension } from "./server/builtin-reload";
 
 export default function contribute(server: PluginServerContext) {
 	const launchSettings = server.registerSettings(piSettings);
@@ -79,12 +78,26 @@ export default function contribute(server: PluginServerContext) {
 		});
 	};
 
-	server.registerProvider(
-		createPiProvider({
-			getSettings: readSettings,
-			diagnostic: (message) => console.error(`[${PI_PROVIDER_ID}] ${message}`),
-		}),
-	);
+	const syncBuiltinReload = async (state: Awaited<ReturnType<typeof launchSettings.read>>) => {
+		const settings = state.status === "ready" ? state.values : PI_SETTINGS_DEFAULTS;
+		try {
+			await ensureBuiltinReloadExtension(piConfigDir(process.env), settings.reloadCommand !== false);
+		} catch (error) {
+			console.error(
+				`[paseo-pi] could not install the built-in reload extension: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	};
+	void launchSettings.read().then(syncBuiltinReload).catch((error: unknown) => {
+		console.error(
+			`[paseo-pi] could not read launch settings for /reload: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
+	});
+	const stopBuiltinReload = launchSettings.subscribe(syncBuiltinReload);
 
 	server.handle(piStatusRpc, async () => piStatus(await readSettings(), process.env));
 
@@ -238,5 +251,7 @@ export default function contribute(server: PluginServerContext) {
 		),
 	);
 
-	return () => {};
+	return () => {
+		stopBuiltinReload();
+	};
 }

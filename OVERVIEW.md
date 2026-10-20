@@ -1,29 +1,30 @@
 # Overview
 
-`@wiselfx/paseo-pi` has two halves: a provider that runs pi over RPC, and a management screen that
-edits pi's own files.
+`@wiselfx/paseo-pi` is the management surface for the [pi coding agent](https://github.com/badlogic/pi-mono)
+inside Paseo. Paseo's built-in `pi` provider owns sessions; this plugin edits pi's files and adds
+the screens and RPCs around them. It does **not** register a second provider.
 
-## Provider
+## Built-in pi
 
-`index.server.ts` registers one provider:
+`index.server.ts` keeps the launch settings, management RPCs, and one small bridge:
 
-- ID `pi-plugin`, label **Pi Plugin**, icon `server/provider/pi.svg`.
-- Command resolution comes from the `pi-launch` settings, with `PI_CODING_AGENT_DIR` pinned for
-  management commands.
-- Each Paseo session gets one `pi --mode rpc` child. Session files are pi JSONL files; the
-  `--session <file>` flag resumes them.
-- Every child loads a generated extension (`server/provider/reload-extension.ts`) that registers
-  pi's `/reload` command; the provider answers it, then refreshes the model list and commands. The
-  client adds a **Reload** composer pill for pi-plugin agents (`client/reload-pill.tsx`).
-- The catalog advertises no models by default: Paseo's built-in pi provider already publishes
-  them, and Paseo does not dedupe across providers. `exposeModels` opts back in; agents otherwise
-  start on pi's configured default.
-- Capabilities: prompt message/command/image/steer, session configure/list/persistence. Tool
-  policy and permission forwarding are deliberately not advertised.
+- When **Reload command** is on (the default), the plugin writes a generated pi extension to
+  `~/.pi/agent/extensions/paseo-pi-reload.ts`. Built-in pi sessions discover it on start, so
+  `/reload` reaches pi's own reload action over RPC. Turning the setting off removes only that
+  generated file; a user file with the same name is never overwritten or deleted.
+- The extension appears under **Extensions & skills** as **paseo-pi reload** and can be switched
+  off with pi's normal `-path` marker.
+- `client/reload-pill.tsx` adds the **Reload** composer pill to built-in `pi` agents and to
+  legacy `pi-plugin` agents. It sends `/reload`.
+- No `pi-plugin` provider is registered. Existing agents from older versions can still be
+  archived; new sessions use Paseo's built-in `pi` provider.
 
-`server/provider/` contains the RPC process wrapper, model catalog probe, event-to-timeline
-translation, and session persistence. `server/sessions.ts` resolves and lists session files.
-`server/pi-status.ts` reports availability, version, and the model catalog.
+`server/provider/` still contains the old provider bridge and its tests. The parts used by
+management (`rpc.ts`, `options.ts`, `models.ts`, timeline helpers) remain; the session bridge is
+not registered.
+
+`server/pi-status.ts` reports availability, version, and the model catalog through a short-lived
+RPC child. `server/sessions.ts` resolves and lists session files.
 
 ## Management
 
@@ -49,14 +50,15 @@ translation, and session persistence. `server/sessions.ts` resolves and lists se
 `client/manage/` is the UI, split by tab. `client/manage/shared.tsx` holds theme-token primitives
 (Paseo-style cards, rows, switches, fields, and buttons) shared by the management panel and the
 `pi-launch` settings screen. `index.client.tsx` registers the sidebar item, the launch settings
-screen, the management screen, command-center entries, and the provider icons.
+screen, the management screen, command-center entries, and the reload pills.
 
 ## File map
 
 ```
-index.server.ts          provider + RPC registration
-index.client.tsx         sidebar, screens, command center
-server/provider/         pi RPC child, catalog, timeline, persistence
+index.server.ts          management RPCs + built-in reload extension sync
+index.client.tsx         sidebar, screens, command center, reload pill
+server/builtin-reload.ts installs/removes the generated extension
+server/provider/         RPC/model/timeline helpers; legacy provider bridge
 server/management.ts     settings/models/prompt/skills/sessions/package operations
 server/sessions.ts       session file discovery
 server/skill-source.ts   GitHub skill lookup and install
