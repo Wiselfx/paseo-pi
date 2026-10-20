@@ -2,13 +2,16 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import {
+	piAddModelsRpc,
 	piDeleteModelRpc,
 	piDeleteProviderRpc,
+	piFetchModelsRpc,
 	piReadModelsRpc,
 	piSaveModelRpc,
 	piSaveModelsJsonRpc,
 	piSaveProviderRpc,
 	PI_MODELS_SECRET_MASK,
+	type PiFetchedModel,
 	type PiProviderEntry,
 } from "../../shared/management";
 import {
@@ -68,6 +71,8 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 	const saveModelRpc = useRpc(piSaveModelRpc);
 	const deleteModelRpc = useRpc(piDeleteModelRpc);
 	const saveRawRpc = useRpc(piSaveModelsJsonRpc);
+	const fetchModelsRpc = useRpc(piFetchModelsRpc);
+	const addModelsRpc = useRpc(piAddModelsRpc);
 
 	const [providers, setProviders] = useState<PiProviderEntry[]>([]);
 	const [revision, setRevision] = useState<string | null>(null);
@@ -79,6 +84,14 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 	const [error, setError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [fetching, setFetching] = useState<{
+		provider: string;
+		api: string;
+		baseUrl: string;
+		models: PiFetchedModel[];
+	} | null>(null);
+	const [selected, setSelected] = useState<Record<string, boolean>>({});
+	const [modelFilter, setModelFilter] = useState("");
 
 	const load = async () => {
 		setError(null);
@@ -151,6 +164,44 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 			setNotice("Model saved.");
 		});
 
+	const fetchModels = (entry: PiProviderEntry) =>
+		void run(async () => {
+			const result = await fetchModelsRpc({ provider: entry.name });
+			if (result.models.length === 0) {
+				setFetching(null);
+				setNotice(`${entry.name} returned no models.`);
+				return;
+			}
+			setFetching({
+				provider: entry.name,
+				api: result.api,
+				baseUrl: result.baseUrl,
+				models: result.models,
+			});
+			setModelFilter("");
+			setSelected({});
+			setNotice(`${result.models.length} models offered by ${entry.name}.`);
+		});
+
+	const addSelectedModels = () =>
+		void run(async () => {
+			if (!fetching || !revision) return;
+			const models = fetching.models.filter((model) => selected[model.id]);
+			if (models.length === 0) return;
+			const result = await addModelsRpc({
+				revision,
+				provider: fetching.provider,
+				models,
+			});
+			setRevision(result.revision);
+			setFetching(null);
+			setSelected({});
+			setNotice(
+				`Added ${result.added} model${result.added === 1 ? "" : "s"}` +
+					(result.skipped ? `; ${result.skipped} already existed.` : "."),
+			);
+		});
+
 	const saveRaw = () =>
 		void run(async () => {
 			if (!revision) return;
@@ -221,6 +272,10 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 					returned; leave it blank while editing to keep the stored value.
 				</Text>
 				<Notice styles={styles} message={error} tone="error" />
+				<Text style={styles.muted}>
+					Paseo's built-in pi provider already lists pi's models, so the Pi Plugin provider
+					advertises none. Turn on Expose models in Settings if you need a separate list.
+				</Text>
 				<Notice styles={styles} message={notice} tone="ok" />
 
 			{provider ? (
@@ -356,6 +411,111 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 				</Card>
 			) : null}
 
+				{fetching ? (
+					<Card styles={styles} title={`Models from ${fetching.provider}`}>
+						<Text style={styles.muted}>
+							{fetching.api} at {fetching.baseUrl}. Pick the models pi should know about.
+						</Text>
+						<TextField
+							styles={styles}
+							value={modelFilter}
+							onChangeText={setModelFilter}
+							placeholder="Filter models"
+						/>
+						<View style={styles.wrap}>
+							<Button
+								styles={styles}
+								label="Select all shown"
+								disabled={busy}
+								onPress={() =>
+									setSelected(
+										Object.fromEntries(
+											fetching.models
+												.filter((model) => {
+													const installed =
+														providers
+															.find((entry) => entry.name === fetching.provider)
+															?.models.some((existing) => existing.id === model.id) ?? false;
+													return (
+														!installed &&
+														`${model.id} ${model.name ?? ""}`
+															.toLowerCase()
+															.includes(modelFilter.trim().toLowerCase())
+													);
+												})
+												.map((model) => [model.id, true]),
+										),
+									)
+								}
+							/>
+							<Button
+								styles={styles}
+								label="Clear"
+								disabled={busy}
+								onPress={() => setSelected({})}
+							/>
+							<Button
+								styles={styles}
+								label={busy ? "Adding..." : `Add selected (${fetching.models.filter((model) => selected[model.id]).length})`}
+								primary
+								disabled={busy || !fetching.models.some((model) => selected[model.id])}
+								onPress={addSelectedModels}
+							/>
+							<Button
+								styles={styles}
+								label="Cancel"
+								disabled={busy}
+								onPress={() => {
+									setFetching(null);
+									setSelected({});
+								}}
+							/>
+						</View>
+						{fetching.models
+							.filter((model) =>
+								`${model.id} ${model.name ?? ""}`
+									.toLowerCase()
+									.includes(modelFilter.trim().toLowerCase()),
+							)
+							.map((model) => {
+								const installed =
+									providers
+										.find((entry) => entry.name === fetching.provider)
+										?.models.some((existing) => existing.id === model.id) ?? false;
+								return (
+									<View key={model.id} style={[styles.item, styles.between]}>
+										<View style={{ flex: 1, gap: 2 }}>
+											<Text style={styles.text}>{model.name ?? model.id}</Text>
+											{model.name && model.name !== model.id ? (
+												<Text style={styles.mono}>{model.id}</Text>
+											) : null}
+											<View style={styles.wrap}>
+												{model.contextWindow ? (
+													<Badge styles={styles} label={`${model.contextWindow} ctx`} />
+												) : null}
+												{model.maxTokens ? (
+													<Badge styles={styles} label={`${model.maxTokens} out`} />
+												) : null}
+												{model.input?.includes("image") ? <Badge styles={styles} label="vision" /> : null}
+												{model.reasoning ? <Badge styles={styles} label="reasoning" /> : null}
+												{installed ? <Badge styles={styles} label="installed" /> : null}
+											</View>
+										</View>
+										<Toggle
+											styles={styles}
+											label={installed ? "Added" : selected[model.id] ? "Selected" : "Select"}
+											value={installed || selected[model.id] === true}
+											disabled={installed}
+											onChange={(value) =>
+												setSelected((current) => ({ ...current, [model.id]: value }))
+											}
+										/>
+									</View>
+								);
+							})}
+					</Card>
+				) : null}
+
 				{providers.length === 0 ? <Text style={styles.muted}>No providers in models.json yet.</Text> : null}
 				{providers.map((entry) => (
 					<View key={entry.name} style={styles.item}>
@@ -371,6 +531,12 @@ export function ModelsTab({ styles }: { styles: ManageStyles }) {
 							</View>
 							<View style={styles.wrap}>
 								<Button styles={styles} label="Edit" onPress={() => editProvider(entry)} disabled={busy} />
+								<Button
+									styles={styles}
+									label="Fetch models"
+									disabled={busy || !entry.baseUrl}
+									onPress={() => fetchModels(entry)}
+								/>
 								<ConfirmButton
 									styles={styles}
 									label="Remove"

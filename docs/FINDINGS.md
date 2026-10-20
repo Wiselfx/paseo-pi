@@ -168,17 +168,46 @@ That storage difference is why the parity map says "pi equivalent", not "same im
 31. **Skill roots can be symlinks.** Creating through a symlinked `skills/` root would write
     outside the agent directory; deletion realpaths both sides. Symlinked roots and directories are
     skipped when scanning.
-32. **Session deletion is a path-security problem.** Require absolute `.jsonl`, realpath both the
-    file and the session directory, require a regular file inside it, then unlink. Absolute paths
-    are checked with `path.isAbsolute` so Windows drive letters work.
+32. **Session deletion is a path-security problem, and it spans two stores.** Require absolute
+    `.jsonl`, realpath both the file and the session directory, require a regular file inside it.
+    Paseo's `paseo delete <id> --json` removes its agent record and timeline but never the pi JSONL;
+    delete the agent first (mapping it through
+    `persistence.metadata.pluginProviderPersistence.data.sessionFile`), then unlink the file. A
+    failed Paseo delete must leave the file for a retry.
 33. **Status caching must include file state.** A probe cached purely on settings goes stale right
     after a management save; the key includes `settings.json` and `models.json` mtime/size.
 34. **List virtualization does not exist in the panel.** Tabs render plain `ScrollView`s; keep lists
     short with limits (sessions 100, skills 400, files 5000) rather than virtualizing.
-35. **Upstream 400s are real.** The router used for pi sessions intermittently rejects requests with
-    `chat message role 'developer' is not supported by the router gRPC frontend`. A session can end
-    with `stopReason: "error"` and no assistant text; the plugin surfaces an error timeline item.
-    Retry once or twice; it is not caused by this plugin.
+35. **Upstream 400s are real.** The router used for pi sessions intermittently rejects requests
+    with `chat message role 'developer' is not supported by the router gRPC frontend`. A session can
+    end with `stopReason: "error"` and no assistant text; the plugin surfaces an error timeline
+    item. Retry once or twice; it is not caused by this plugin.
+
+36. **Paseo does not dedupe models across providers.** Two providers advertising the same
+    `${provider}/${modelId}` both appear in the model browser. A provider with `models: []` is still
+    ready and can create agents (normal creation does not validate against the catalog), so the
+    plugin advertises none unless `exposeModels` is on. No registration flag hides a provider while
+    keeping it usable.
+37. **The plugin server bundle is CommonJS, not a module.** `import.meta.url` is `undefined` and
+    `import.meta.resolve` does not exist, so `createRequire(import.meta.url)` fails. Resolve from
+    `process.argv[1]` (the daemon's `plugin-process.js`): `createRequire(process.argv[1]).resolve(
+    "@getpaseo/cli/dist/index.js")`. Fall back to `paseo` on `PATH`; the CLI is not a declared
+    dependency of `@getpaseo/server`.
+38. **`SettingsInput` and `SettingsSwitch` are complete rows.** They already take `label` and
+    `hint`; wrapping one in `SettingsRow` renders the label twice and pushes the control out of the
+    row. Browser QA caught this on the launch screen.
+39. **Paseo wraps each agent-list entry.** `agents.list()` returns `entries[{ agent: snapshot }]`,
+    not snapshots; persistence is at
+    `persistence.metadata.pluginProviderPersistence.data.sessionFile`.
+40. **Pasted commands are the normal input.** People paste `pi install npm:…` into a source field.
+    Normalise (prompt, backticks, quotes, `pi install`/`add`/`i`) before validating; otherwise the
+    field rejects a perfectly good source.
+41. **The plugin can be reloaded from the CLI without a restart.** `paseo plugin reload paseo-pi
+    --home <home>` reloads the server and client bundle; the browser page needs a reload to pick up
+    client changes.
+42. **The browser tool can be the broken part.** In this environment Chromium answered HTTP and
+    served pages, but every `browser` action returned empty output until the app was reinstalled.
+    Verify with `curl` and the live smoke scripts before assuming the app is at fault.
 
 ## 3. Things that saved time
 

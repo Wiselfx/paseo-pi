@@ -4,6 +4,8 @@ import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, unlink, wr
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import { createRequire } from "node:module";
+import type { PaseoApi } from "@getpaseo/client";
 import {
 	PI_MODELS_SECRET_MASK,
 	type PiExtensionEntry,
@@ -18,6 +20,7 @@ import type { PiSettings } from "../shared/settings";
 import { listPiSessions } from "./sessions";
 import { piAgentDir } from "./paths";
 import { resolveLaunch } from "./provider/options";
+import { looksLikePackageSource, normalizePackageInput } from "../shared/source";
 
 const execFileAsync = promisify(execFile);
 const MAX_SETTINGS_BYTES = 1_000_000;
@@ -30,12 +33,15 @@ export interface ManagementContext {
 	sessionDir: string;
 	settings: PiSettings;
 	env: NodeJS.ProcessEnv;
+	/** Provided by the plugin host so deleting a session can remove its Paseo record too. */
+	paseo?: PaseoApi;
 }
 
 export function buildManagementContext(input: {
 	settings: PiSettings;
 	sessionDir: string;
 	env?: NodeJS.ProcessEnv;
+	paseo?: PaseoApi;
 }): ManagementContext {
 	const env = input.env ?? process.env;
 	return {
@@ -43,6 +49,7 @@ export function buildManagementContext(input: {
 		sessionDir: input.sessionDir,
 		settings: input.settings,
 		env,
+		...(input.paseo ? { paseo: input.paseo } : {}),
 	};
 }
 
@@ -233,6 +240,29 @@ function restoreModelsSecrets(value: unknown, current: unknown): unknown {
 	return value;
 }
 
+/** Raw provider record for requests that need the stored key, which is never sent to clients. */
+export async function readProviderRecord(
+	agentDir: string,
+	name: string,
+): Promise<{ baseUrl?: string; api?: string; apiKey?: string; headers?: Record<string, string> } | null> {
+	const read = await readJsonObject(modelsPath(agentDir), MAX_MODELS_BYTES);
+	const providers = providerRecords(read.value ?? { providers: {} });
+	const provider = providers[name];
+	if (!provider) return null;
+	const headers: Record<string, string> = {};
+	if (provider.headers && typeof provider.headers === "object" && !Array.isArray(provider.headers)) {
+		for (const [key, value] of Object.entries(provider.headers)) {
+			if (typeof value === "string") headers[key] = value;
+		}
+	}
+	return {
+		...(typeof provider.baseUrl === "string" ? { baseUrl: provider.baseUrl } : {}),
+		...(typeof provider.api === "string" ? { api: provider.api } : {}),
+		...(typeof provider.apiKey === "string" ? { apiKey: provider.apiKey } : {}),
+		...(Object.keys(headers).length ? { headers } : {}),
+	};
+}
+
 export async function readPiModels(agentDir: string): Promise<{
 	path: string;
 	revision: string;
@@ -330,6 +360,53 @@ export async function deleteProvider(input: {
 		if (!Object.hasOwn(providers, input.name)) throw new Error(`Provider ${input.name} is not in models.json`);
 		delete providers[input.name];
 	});
+}
+
+export async function addModels(input: {
+	agentDir: string;
+	revision: string;
+	provider: string;
+	models: {
+		id: string;
+		name?: string;
+		reasoning?: boolean;
+		input?: ("text" | "image")[];
+		contextWindow?: number | null;
+		maxTokens?: number | null;
+	}[];
+}): Promise<{ revision: string; added: number; skipped: number }> {
+	let added = 0;
+	let skipped = 0;
+	const result = await mutateModels(input.agentDir, input.revision, (_doc, providers) => {
+		const provider = providers[input.provider];
+		if (!provider) throw new Error(`Provider ${input.provider} is not in models.json`);
+		const models = Array.isArray(provider.models) ? [...provider.models] : [];
+		const existing = new Set(
+			models
+				.filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
+				.map((value) => value.id)
+				.filter((id): id is string => typeof id === "string"),
+		);
+		for (const model of input.models) {
+			const id = model.id.trim();
+			if (!id || existing.has(id)) {
+				skipped += 1;
+				continue;
+			}
+			existing.add(id);
+			models.push({
+				id,
+				...(model.name ? { name: model.name } : {}),
+				...(model.reasoning ? { reasoning: true } : {}),
+				...(model.input?.length ? { input: model.input } : {}),
+				...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+				...(model.maxTokens ? { maxTokens: model.maxTokens } : {}),
+			});
+			added += 1;
+		}
+		provider.models = models;
+	});
+	return { revision: result.revision, added, skipped };
 }
 
 export async function saveModel(input: {
@@ -758,7 +835,7 @@ export async function listPiResources(context: ManagementContext): Promise<{
 }
 
 function validatePackageSource(source: string): string {
-	const trimmed = source.trim();
+	const trimmed = normalizePackageInput(source);
 	if (!trimmed || trimmed.startsWith("-") || /[\u0000-\u001f\u007f]/u.test(trimmed)) {
 		throw new Error("Enter a package source such as npm:pi-tools, git:github.com/user/repo, or ./local-package");
 	}
@@ -936,10 +1013,66 @@ export async function listManagedSessions(
 	};
 }
 
+type PaseoAgentLike = {
+	id: string;
+	persistence?: {
+		metadata?: { pluginProviderPersistence?: { data?: { sessionFile?: unknown } } };
+	};
+};
+
+/** Paseo stores the pi session path inside a plugin-provider persistence wrapper. */
+export function paseoAgentIdsForSession(agents: PaseoAgentLike[], sessionFile: string): string[] {
+	const wanted = resolve(sessionFile);
+	const ids: string[] = [];
+	for (const agent of agents) {
+		const stored = agent.persistence?.metadata?.pluginProviderPersistence?.data?.sessionFile;
+		if (typeof stored === "string" && resolve(stored) === wanted) ids.push(agent.id);
+	}
+	return ids;
+}
+
+function resolvePaseoCli(): { command: string; prefix: string[] } {
+	const override = process.env.PASEO_CLI?.trim();
+	if (override) return { command: override, prefix: [] };
+	try {
+		const requireFromDaemon = createRequire(process.argv[1] ?? import.meta.url);
+		const entry = requireFromDaemon.resolve("@getpaseo/cli/dist/index.js");
+		return { command: process.execPath, prefix: [entry] };
+	} catch {
+		return { command: "paseo", prefix: [] };
+	}
+}
+
+async function deletePaseoAgent(agentId: string): Promise<void> {
+	const { command, prefix } = resolvePaseoCli();
+	const args = [
+		...prefix,
+		"delete",
+		agentId,
+		"--json",
+		...(process.env.PASEO_HOME ? ["--home", process.env.PASEO_HOME] : []),
+	];
+	try {
+		await execFileAsync(command, args, {
+			env: process.env,
+			timeout: 30_000,
+			maxBuffer: 1024 * 1024,
+		});
+	} catch (error) {
+		const detail =
+			error && typeof error === "object" && "stderr" in error && typeof error.stderr === "string"
+				? error.stderr.trim()
+				: error instanceof Error
+					? error.message
+					: String(error);
+		throw new Error(`Paseo could not delete agent ${agentId}: ${detail}`);
+	}
+}
+
 export async function deleteManagedSession(
 	context: ManagementContext,
 	input: { sessionFile: string },
-): Promise<{ sessionFile: string }> {
+): Promise<{ sessionFile: string; deletedAgents: number }> {
 	if (!isAbsolute(input.sessionFile) || !input.sessionFile.endsWith(".jsonl")) {
 		throw new Error("Not a pi session file");
 	}
@@ -952,8 +1085,19 @@ export async function deleteManagedSession(
 	if (!file.endsWith(".jsonl") || !(await stat(file)).isFile() || !inside(root, file)) {
 		throw new Error("Session file is outside the configured session directory");
 	}
+	let agents: PaseoAgentLike[] = [];
+	if (context.paseo) {
+		const result = await context.paseo.agents.list({
+			filter: { includeArchived: true, includeBackground: true },
+		});
+		agents = (result.entries ?? [])
+			.map((entry) => (entry as unknown as { agent?: PaseoAgentLike }).agent)
+			.filter((agent): agent is PaseoAgentLike => !!agent && typeof agent.id === "string");
+	}
+	const ids = paseoAgentIdsForSession(agents, file);
+	for (const id of ids) await deletePaseoAgent(id);
 	await unlink(file);
-	return { sessionFile: input.sessionFile };
+	return { sessionFile: input.sessionFile, deletedAgents: ids.length };
 }
 
 function inside(root: string, file: string): boolean {
@@ -973,7 +1117,10 @@ export async function addPiExtension(input: {
 	agentDir: string;
 	path: string;
 }): Promise<{ path: string }> {
-	const value = input.path.trim();
+	const value = normalizePackageInput(input.path);
+	if (looksLikePackageSource(value)) {
+		throw new Error("That is a package source. Use Install package instead of an extension path.");
+	}
 	if (
 		!value ||
 		value.startsWith("-") ||

@@ -19,7 +19,8 @@ stated otherwise.
 | `index.client.tsx` | Client entry: sidebar row, management screen, launch-settings screen, command-center items. |
 | `shared/` | Zod contracts shared by client and server; no runtime state. |
 | `shared/constants.ts` | IDs: plugin `paseo-pi`, provider `pi-plugin`, screen `pi-config`, launch settings `paseo-pi-launch`, persistence version `1`. |
-| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, four `no*` toggles, `reloadCommand`). |
+| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, four `no*` toggles, `reloadCommand`, `exposeModels`). |
+| `shared/source.ts` | Normalises a pasted `pi install …` command to its package source. |
 | `shared/rpc.ts` | Status/refresh RPCs. |
 | `shared/management.ts` | One RPC per management operation, all schemas and limits, `PI_MODELS_SECRET_MASK`. |
 | `server/paths.ts` | Resolves the pi agent directory. |
@@ -32,6 +33,8 @@ stated otherwise.
 | `server/provider/models.ts` | Wire model to `ProviderModel`/usage mapping. |
 | `server/provider/timeline.ts` | pi message/tool content to Paseo timeline details. |
 | `server/sessions.ts` | Session file discovery, summaries, persistence parsing. |
+| `server/skill-source.ts` | GitHub link parsing, repository scan, skill download and write. |
+| `server/model-source.ts` | Asks a configured provider for its model list (OpenAI, Anthropic, Google). |
 | `server/management.ts` | All file mutations: settings, models, prompt, skills, sessions, packages. |
 | `server/pi-status.ts` | Host status probe and model catalog for the Overview tab. |
 | `client/manage/` | The management panel, split by tab. |
@@ -201,7 +204,11 @@ primitives:
 `pi install|update|remove` with the agent directory as cwd, `PI_CODING_AGENT_DIR` forced, launch
 args applied, a 180 s timeout, and a 4 MB output cap. `update` with no source runs
 `pi update --extensions`. Sources are validated: `npm:`, `git:`, `http(s)://`, `ssh://`, `~/`,
-absolute, or `./`/`../`; control characters and a leading `-` are rejected. Relative local sources
+absolute, or `./`/`../`; control characters and a leading `-` are rejected. Before validation,
+`normalizePackageInput` strips a pasted shell prompt, backticks, quotes, and a
+`pi install`/`pi add`/`pi i` prefix, so `pi install npm:@scope/pkg` is stored as `npm:@scope/pkg`.
+The extension-path field uses the same normaliser and rejects package sources with a pointer to
+Install package. Relative local sources
 therefore resolve against the agent directory.
 
 `listPiResources` merges: the four built-ins (`mcp`, `llama.cpp`, `codemode`, `tool-search`),
@@ -231,6 +238,8 @@ through `ConfirmButton` (two taps, 5 s window). Package output is shown as the n
 
 | RPC | Input → output |
 |---|---|
+| `paseo-pi.inspect-skill-source` | `{ source }` → `{ candidates[{ name, description, path, url, installed }] }` |
+| `paseo-pi.install-skill-source` | `{ source, path? }` → `{ path, name }` |
 | `paseo-pi.create-skill` | `{ name, description, instructions? }` → `{ path }` |
 | `paseo-pi.delete-skill` | `{ path }` → `{ path }` |
 
@@ -250,8 +259,20 @@ resolves the real `skills/` root and refuses it if it escapes the real agent dir
 requested directory to be the real one (no symlink), requires the directory to be inside one of the
 two real user skill roots, and removes it recursively.
 
-Client: the Skills card in `client/manage/resources.tsx` (New skill form, Remove with confirm,
-source badges).
+**GitHub skills.** `server/skill-source.ts` accepts `github.com` and
+`raw.githubusercontent.com` links in file (`blob`, `raw`), repository, directory (`tree`), and bare
+`owner/repo` forms. A file link is one candidate. A repository is scanned through the GitHub trees
+API for `SKILL.md` blobs (first 60; names and descriptions read with six concurrent raw fetches, a
+failed file falling back to its directory name). Frontmatter parsing handles quoted values and
+`|`/`>` block scalars. `installGitHubSkill` re-downloads the chosen file and writes it to
+`<agentDir>/skills/<name>/SKILL.md` (0600), refusing a name that already exists and verifying the
+real skills root stays inside the real agent directory. GitHub's rate limit (403/429) and a missing
+default branch produce explicit errors. Tests inject `fetch`, so the suite stays offline; a live run
+against `anthropics/skills` found all 20 skills and installed one to a temporary agent directory.
+
+Client: the Skills card in `client/manage/resources.tsx`: paste a link, **Find skills**, filter and
+Add a candidate (installed ones are disabled); **Write one instead** opens the manual form. Remove
+with confirm and source badges remain.
 
 ### 3.3 Settings
 
@@ -293,6 +314,8 @@ an editor, Save (disabled until dirty), Reload, and two-tap Clear.
 | `paseo-pi.save-model` | `{ revision, provider, originalId?, model }` → `{ revision }` |
 | `paseo-pi.delete-model` | `{ revision, provider, id }` → `{ revision }` |
 | `paseo-pi.save-models-json` | `{ revision, json }` → `{ revision }` |
+| `paseo-pi.fetch-models` | `{ provider }` → `{ baseUrl, api, models[] }` |
+| `paseo-pi.add-models` | `{ revision, provider, models[] }` → `{ revision, added, skipped }` |
 
 `models.json` (max 2 MB) is mutated in place so advanced fields survive:
 
@@ -314,8 +337,25 @@ except provider names directly under `providers`) are replaced by `__PI_SECRET__
 current file's values are restored wherever the marker remains; changing or deleting a masked value
 persists the change. A masked value with no current counterpart is dropped.
 
+**Fetching.** `fetchProviderModels` reads the provider record server-side (the key never reaches
+the client), expands a `$ENV` key from the plugin's environment, and calls the provider's own
+`/models`: OpenAI-compatible `GET /models` with a bearer token, Anthropic `GET /models?limit=1000`
+with `x-api-key` and `anthropic-version`, Google `GET /models?pageSize=1000&key=…`. Responses are
+capped at 2 MB and mapped to id, label, vision, reasoning, context and output limits. A rejected key
+(401/403), a non-JSON body, and a provider without `baseUrl` each produce a specific error.
+`addModels` applies one revision-checked mutation, skips ids that already exist, and returns how
+many were added and skipped.
+
+**No duplicate catalog.** Paseo's built-in `pi` provider already publishes pi's models, and Paseo
+does not dedupe across providers, so listing them twice doubles every entry in the model browser.
+`server/provider/connection.ts` therefore answers `catalog` with `models: []` and no
+`defaultModel` unless the host setting `exposeModels` is true; pi still starts on its configured
+default, and Paseo's creation path accepts a provider with no advertised models. The Overview tab
+and the models tab both say where the list lives.
+
 Client: `client/manage/models.tsx`: provider form, model form, per-provider and per-model
-Edit/Delete, and the raw `models.json` editor.
+Edit/Delete, the raw `models.json` editor, and **Fetch models** → filter → **Select all shown** /
+individual toggles → **Add selected**.
 
 ### 3.6 Sessions
 
@@ -324,7 +364,7 @@ Edit/Delete, and the raw `models.json` editor.
 | `paseo-pi.status` | `{}` → `{ command, available, version, diagnostic, sessionDir, modelCount, models[], configDir }` |
 | `paseo-pi.refresh` | `{}` → `{ refreshedAt }` |
 | `paseo-pi.list-sessions` | `{ cwd?, query?, limit? }` → `{ sessionDir, sessions[] }` |
-| `paseo-pi.delete-session` | `{ sessionFile }` → `{ sessionFile }` |
+| `paseo-pi.delete-session` | `{ sessionFile }` → `{ sessionFile, deletedAgents }` |
 
 The provider also implements `session.list` for Paseo's own pickers via the same
 `listPiSessions`. `server/sessions.ts` walks the session directory (depth 3, 5000 files), reads at
@@ -334,7 +374,14 @@ most 8 MB per file, takes `id`/`cwd` from the first `type: "session"` record, pr
 substring over title/id/cwd/path.
 
 Delete accepts only an absolute `.jsonl`, realpaths both the file and the session directory,
-requires a regular file inside that directory, and unlinks it.
+requires a regular file inside that directory, then finds Paseo agents whose plugin-provider
+persistence metadata points at that path (`paseoAgentIdsForSession`). Each is deleted with
+`paseo delete <id> --json` (the CLI cancels a running agent first), falling back from
+`@getpaseo/cli` next to the daemon to `paseo` on `PATH`, and passing `--home` when `PASEO_HOME` is
+set. Only after that succeeds is the JSONL unlinked, so a failed Paseo delete leaves the session for
+a retry. A session with no Paseo record is simply unlinked. The plugin server bundle is CommonJS
+and has no usable `import.meta.url`, so the CLI path is resolved with
+`createRequire(process.argv[1])`.
 
 Persistence is version 1: `{ version: 1, data: { sessionFile, sessionId? } }`, with an absolute
 `sessionFile`. `piStatus` runs `pi --version` (8 s) and probes models through a `--no-session` RPC
@@ -411,9 +458,13 @@ NODE_OPTIONS= ./node_modules/.bin/vitest run
 | `tests/sessions.test.ts` | Listing order and titles, cwd/query filters, limit, missing directory, persistence acceptance/rejection, session directory precedence including custom agent dirs. |
 | `tests/reload.test.ts` | The generated extension is private (`0600`) and calls `ctx.reload()`, the path is stable, and only the bare `/reload` is recognized. |
 | `tests/reload-pill.test.ts` | The pill appears only for idle pi-plugin agents, sends `/reload`, disables while running, re-scopes on a workspace move, and cleans up. |
-| `tests/management.test.ts` | Settings read/save/stale revision, resource listing, provider/model CRUD without key disclosure, raw JSON revisions, secret masking/restore, prototype-named providers, duplicate/missing providers, model limit clearing, skill create/delete, prompt write/clear, session listing and confined delete. |
+| `tests/source.test.ts` | Pasted `pi install`/`pi add`, shell prompt, quotes and backticks normalise to the bare package source; paths are not mistaken for packages. |
+| `tests/skill-source.test.ts` | GitHub link forms, SKILL.md frontmatter (quotes, block scalars), repository scans with a fake `fetch`, per-file tolerance, rate-limit and empty-repo errors, and installs that write `SKILL.md` with mode 0600 and refuse duplicates. |
+| `tests/model-source.test.ts` | OpenAI/Anthropic/Google endpoint, headers and query keys; `$ENV` expansion; vision/reasoning/context mapping; 401, non-JSON, missing base URL and missing provider errors. |
+| `tests/connection-catalog.test.ts` | The catalog is empty without `exposeModels` (and does not even ask pi for models), and contains pi's models with it. |
+| `tests/management.test.ts` | Settings read/save/stale revision, resource listing, provider/model CRUD without key disclosure, raw JSON revisions, secret masking/restore, prototype-named providers, duplicate/missing providers, model limit clearing, skill create/delete, prompt write/clear, session listing and confined delete, and mapping a session file to Paseo agent ids. |
 
-Current result: **8 files, 46 tests passed**, `tsc --noEmit` exit 0.
+Current result: **12 files, 85 tests passed**, `tsc --noEmit` exit 0.
 
 Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARGS`,
 `PI_SMOKE_DIR`, `PI_SMOKE_MODEL`, `PI_SMOKE_CWD`):
@@ -425,7 +476,7 @@ Smoke scripts (need a pi binary; `scripts/pi-env.ts` reads `PI_COMMAND`, `PI_ARG
 | `smoke-resume.ts` | Resuming the newest smoke session file and replaying history. |
 | `smoke-list.ts` | `listPiSessions` finds files in the smoke directory. |
 | `smoke-reload.ts` | Against a real pi child with a throwaway agent dir: `/reload` is a listed command, picks up a skill created after open, and is refused when `reloadCommand` is off. |
-| `smoke-paseo.ts` | Against a running daemon: provider availability, catalog for a chosen model, an agent that finishes with a visible reply, and (for `pi-plugin`) the listed reload command plus its notice. |
+| `smoke-paseo.ts` | Against a running daemon: provider availability, no catalog by default (or a chosen model with `PI_SMOKE_EXPOSE_MODELS=1`), an agent that finishes with a visible reply, and (for `pi-plugin`) the listed reload command plus its notice. |
 
 Run with `NODE_OPTIONS= bun scripts/smoke-*.ts`. `smoke-paseo` defaults to
 `ws://127.0.0.1:39085/ws`, provider `pi-plugin`, and model `Zen/deepseek-v4.1-flash-free`; set
@@ -434,8 +485,11 @@ Run with `NODE_OPTIONS= bun scripts/smoke-*.ts`. `smoke-paseo` defaults to
 Browser QA on the dev daemon: open
 `http://127.0.0.1:39085/h/<server>/plugin/paseo-pi/surface/pi-config`, then check tabs, command
 center deep links (`?param.tab=models`), the launch-settings save/revert cycle (including the
-Reload command switch), the raw models editor masks, the session list and delete confirmation, the
-Reload pill on a pi-plugin agent, and the console (only Paseo's own Expo warnings should appear).
+Expose models and Reload command switches), the raw models editor masks, GitHub skill lookup,
+Fetch models, the session list and delete confirmation, the Reload pill on a pi-plugin agent, and
+the console (only Paseo's own Expo warnings should appear). The launch screen must pass `hint`
+directly to `SettingsInput`/`SettingsSwitch`; wrapping an input in `SettingsRow` duplicates labels
+and pushes the control out of the row.
 
 An intermittent upstream 400 (`chat message role 'developer' is not supported by the router gRPC
 frontend`) can kill a run and leave an empty assistant message with `stopReason: error` in the
@@ -449,7 +503,8 @@ session JSONL. It is provider-side; retry the same step once before investigatin
 | `models.json is not valid JSON` | File on disk, not the UI | `readPiModels`; `models.json` syntax | `mutateModels`, `saveModelsJson` |
 | `Provider X is not in models.json` | Provider was deleted or renamed elsewhere | `providersView`, `saveProvider`/`saveModel` | `server/management.ts` |
 | `Pi executable not found` | Launch settings or PATH | `pi-launch` command; run `pi --version` in the daemon environment | `server/provider/registration.ts`, `server/pi-status.ts` |
-| Catalog empty / `pi reported no models` | pi config, not the plugin | `pi --mode rpc --no-session` plus `get_available_models`; `models.json` | `server/provider/models.ts`, `connection.ts` catalog |
+| Catalog empty in Paseo | Working as designed: the built-in `pi` provider owns the list | The `exposeModels` switch; `get_available_models` in a manual RPC child | `connection.ts` catalog, `shared/settings.ts` |
+| `pi reported no models` (only when exposing) | pi config, not the plugin | `pi --mode rpc --no-session` plus `get_available_models`; `models.json` | `server/provider/models.ts`, `connection.ts` catalog |
 | Thinking level missing for a model | The model's own capability map | `get_available_thinking_levels`; model `reasoning` | `server/provider/models.ts`, `session.ts` open step |
 | `Unknown Pi session` | Session id no longer open | Whether the child exited (stderr in the daemon log) | `connection.ts` dispatch, `PiSession` exit listener |
 | Package install/update fails | pi's installer, not the plugin | The error text (returned verbatim); source prefix rules | `runPi`, `validatePackageSource` |
@@ -457,6 +512,9 @@ session JSONL. It is provider-side; retry the same step once before investigatin
 | Skill create refuses the root | Symlink or custom agent dir | Real path of `<agentDir>/skills` | `createPiSkill` containment |
 | Session list empty | Wrong directory | `piStatus.sessionDir` and `settings.sessionDir` | `resolveSessionDir`, `listPiSessions` |
 | Delete rejects a file | Path outside the session dir | Realpath of both sides | `deleteManagedSession`, `inside` |
+| `Paseo could not delete agent …` | The CLI could not run or reach the daemon | `PASEO_HOME`; `paseo delete <id> --json --home …` by hand; whether `@getpaseo/cli` sits beside the daemon | `deletePaseoAgent`, `paseoAgentIdsForSession` |
+| GitHub lookup fails | Network, rate limit, or the link form | The message (rate limit / not found / no SKILL.md); try a raw or file link | `server/skill-source.ts` |
+| Fetch models says the key was rejected | Provider credentials, not the plugin | The provider's key and base URL; `$ENV` names in the daemon's environment | `fetchProviderModels` |
 | Raw editor shows `__PI_SECRET__` | Masking working as designed | Save restores it unless you edited the value | `redactModelsSecrets` / `restoreModelsSecrets` |
 | Status/model count stale | Probe cache | Press Refresh (clears the cache) | `server/pi-status.ts` |
 | `/reload` says the command is unavailable | `reloadCommand` off or the child predates the bridge | The launch settings switch; archive and reopen an old session | `session.ts` `reload`, `reload-extension.ts` |

@@ -2,7 +2,6 @@ import { type PluginSurfaceProps, useSettings } from "@getpaseo/plugin/client";
 import {
 	SettingsAction,
 	SettingsInput,
-	SettingsRow,
 	SettingsSection,
 	SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
@@ -62,42 +61,38 @@ export function PiSettingsScreen({ theme }: PluginSurfaceProps) {
 			title="Pi launch"
 			info="What Paseo runs and which resources pi loads. A per-agent launch overrides the command and arguments."
 		>
-			<SettingsRow label="Command" hint="Executable on the daemon host">
-				<SettingsInput
-					label="Command"
-					key={`command-${state.revision}`}
-					initialValue={values.command}
-					onChangeText={(command) => update({ command })}
-					placeholder="pi"
-				/>
-			</SettingsRow>
-			<SettingsRow label="Arguments" hint="Comma separated, before the RPC flags">
-				<SettingsInput
-					label="Arguments"
-					key={`args-${state.revision}`}
-					initialValue={argsText}
-					onChangeText={setArgsText}
-					placeholder="--no-extensions"
-				/>
-			</SettingsRow>
-			<SettingsRow label="Session directory" hint="Empty uses pi's default (~/.pi/agent/sessions)">
-				<SettingsInput
-					label="Session directory"
-					key={`dir-${state.revision}`}
-					initialValue={values.sessionDir}
-					onChangeText={(sessionDir) => update({ sessionDir })}
-					placeholder="/home/me/.pi/agent/sessions"
-				/>
-			</SettingsRow>
-			<SettingsRow label="Inherit env" hint="Comma separated names copied from the daemon environment">
-				<SettingsInput
-					label="Inherit env"
-					key={`env-${state.revision}`}
-					initialValue={envText}
-					onChangeText={setEnvText}
-					placeholder="OPENAI_API_KEY, ANTHROPIC_API_KEY"
-				/>
-			</SettingsRow>
+			<SettingsInput
+				label="Command"
+				hint="Executable on the daemon host"
+				key={`command-${state.revision}`}
+				initialValue={values.command}
+				onChangeText={(command) => update({ command })}
+				placeholder="pi"
+			/>
+			<SettingsInput
+				label="Arguments"
+				hint="Comma separated, before the RPC flags"
+				key={`args-${state.revision}`}
+				initialValue={argsText}
+				onChangeText={setArgsText}
+				placeholder="--no-extensions"
+			/>
+			<SettingsInput
+				label="Session directory"
+				hint="Empty uses pi's default (~/.pi/agent/sessions)"
+				key={`dir-${state.revision}`}
+				initialValue={values.sessionDir}
+				onChangeText={(sessionDir) => update({ sessionDir })}
+				placeholder="/home/me/.pi/agent/sessions"
+			/>
+			<SettingsInput
+				label="Inherit env"
+				hint="Comma separated names copied from the daemon environment"
+				key={`env-${state.revision}`}
+				initialValue={envText}
+				onChangeText={setEnvText}
+				placeholder="OPENAI_API_KEY, ANTHROPIC_API_KEY"
+			/>
 			<SettingsSwitch
 				label="Use extensions"
 				hint="Extensions, including pi's built-in ones"
@@ -120,6 +115,12 @@ export function PiSettingsScreen({ theme }: PluginSurfaceProps) {
 				hint="From ~/.pi/agent/mcp.json and the project"
 				value={!values.noMcp}
 				onValueChange={(enabled) => update({ noMcp: !enabled })}
+			/>
+			<SettingsSwitch
+				label="Expose models"
+				hint="Show pi's models under the Pi Plugin provider. Off by default because the built-in pi provider already lists them"
+				value={values.exposeModels}
+				onValueChange={(enabled) => update({ exposeModels: enabled })}
 			/>
 			<SettingsSwitch
 				label="Reload command"

@@ -20,10 +20,18 @@ try {
 	if (!entry.available) fail(`provider ${provider} is unavailable: ${entry.error ?? "no diagnostic"}`);
 
 	const models = (await client.providers.listModels(provider as never, { cwd })).models ?? [];
-	if (!models.some((candidate) => candidate.id === model)) {
+	const expose = process.env.PI_SMOKE_EXPOSE_MODELS === "1";
+	if (!expose && models.length > 0) {
+		fail(`catalog lists ${models.length} models even though the built-in pi provider owns them`);
+	}
+	if (expose && !models.some((candidate) => candidate.id === model)) {
 		fail(`${provider} does not offer ${model}`);
 	}
-	console.log(`OK catalog: ${provider}, ${models.length} models`);
+	console.log(
+		expose
+			? `OK catalog: ${provider}, ${models.length} models (exposed on request)`
+			: "OK catalog: no duplicate models; built-in pi keeps the list",
+	);
 
 	const agent = await client.agents.create({
 		cwd,

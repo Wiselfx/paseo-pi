@@ -70,8 +70,12 @@ export function SessionsTab({ styles }: { styles: ManageStyles }) {
 		setError(null);
 		setNotice(null);
 		try {
-			await deleteRpc({ sessionFile: session.sessionFile });
-			setNotice(`Deleted ${session.sessionId || session.sessionFile}.`);
+			const result = await deleteRpc({ sessionFile: session.sessionFile });
+			setNotice(
+				result.deletedAgents > 0
+					? `Deleted ${session.sessionId || session.sessionFile} and ${result.deletedAgents} Paseo agent${result.deletedAgents === 1 ? "" : "s"}.`
+					: `Deleted ${session.sessionId || session.sessionFile}. It had no Paseo agent.`,
+			);
 			await load(true);
 		} catch (failure) {
 			setError(failure instanceof Error ? failure.message : String(failure));

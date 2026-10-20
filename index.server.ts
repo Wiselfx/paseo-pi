@@ -3,9 +3,13 @@ import { PI_PROVIDER_ID } from "./shared/constants";
 import {
 	piAddExtensionRpc,
 	piCreateSkillRpc,
+	piAddModelsRpc,
 	piDeleteModelRpc,
 	piDeleteProviderRpc,
 	piDeleteSessionRpc,
+	piFetchModelsRpc,
+	piInspectSkillSourceRpc,
+	piInstallSkillSourceRpc,
 	piDeleteSkillRpc,
 	piInstallPackageRpc,
 	piListManagedSessionsRpc,
@@ -26,6 +30,7 @@ import {
 import { piRefreshRpc, piStatusRpc } from "./shared/rpc";
 import { PI_SETTINGS_DEFAULTS, piSettings, type PiSettings } from "./shared/settings";
 import {
+	addModels,
 	addPiExtension,
 	buildManagementContext,
 	createPiSkill,
@@ -49,6 +54,8 @@ import {
 	updatePiPackages,
 	writePrompt,
 } from "./server/management";
+import { fetchProviderModels } from "./server/model-source";
+import { inspectGitHubSkill, installGitHubSkill } from "./server/skill-source";
 import { clearPiStatusCache, piConfigDir, piStatus, piSessionDir } from "./server/pi-status";
 import { createPiProvider } from "./server/provider/registration";
 
@@ -107,6 +114,24 @@ export default function contribute(server: PluginServerContext) {
 		}),
 	);
 	server.handle(piCreateSkillRpc, async (input) => createPiSkill(await context(), input));
+	server.handle(piInspectSkillSourceRpc, async (input) => {
+		const management = await context();
+		const resources = await listPiResources(management);
+		return inspectGitHubSkill({
+			source: input.source,
+			existingNames: resources.skills.map((skill) => skill.name),
+		});
+	});
+	server.handle(piInstallSkillSourceRpc, async (input) => {
+		const management = await context();
+		const resources = await listPiResources(management);
+		return installGitHubSkill({
+			source: input.source,
+			...(input.path ? { path: input.path } : {}),
+			agentDir: management.agentDir,
+			existingNames: resources.skills.map((skill) => skill.name),
+		});
+	});
 	server.handle(piDeleteSkillRpc, async (input) => ({
 		path: await deletePiSkill(await context(), input),
 	}));
@@ -153,6 +178,22 @@ export default function contribute(server: PluginServerContext) {
 			id: input.id,
 		}),
 	);
+	server.handle(piFetchModelsRpc, async (input) => {
+		const management = await context();
+		return fetchProviderModels({
+			agentDir: management.agentDir,
+			provider: input.provider,
+			env: management.env,
+		});
+	});
+	server.handle(piAddModelsRpc, async (input) =>
+		addModels({
+			agentDir: (await context()).agentDir,
+			revision: input.revision,
+			provider: input.provider,
+			models: input.models,
+		}),
+	);
 	server.handle(piSaveModelsJsonRpc, async (input) =>
 		saveModelsJson({
 			agentDir: (await context()).agentDir,
@@ -172,7 +213,12 @@ export default function contribute(server: PluginServerContext) {
 	);
 
 	server.handle(piListManagedSessionsRpc, async (input) => listManagedSessions(await context(), input));
-	server.handle(piDeleteSessionRpc, async (input) => deleteManagedSession(await context(), input));
+	server.handle(piDeleteSessionRpc, async (input, handlerContext) =>
+		deleteManagedSession(
+			{ ...(await context()), ...(handlerContext.paseo ? { paseo: handlerContext.paseo } : {}) },
+			input,
+		),
+	);
 
 	return () => {};
 }

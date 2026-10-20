@@ -67,7 +67,7 @@ export function OverviewTab({
 							<Notice styles={styles} message={status.diagnostic} tone="warning" />
 						) : null}
 						<View style={styles.between}>
-							<Text style={styles.label}>Models</Text>
+							<Text style={styles.label}>Models configured</Text>
 							<Text style={styles.text}>{status.modelCount}</Text>
 						</View>
 						<View style={{ gap: 3 }}>
@@ -101,7 +101,7 @@ export function OverviewTab({
 			</Card>
 
 			{status && status.models.length > 0 ? (
-				<Card styles={styles} title="Model catalog">
+				<Card styles={styles} title="Models in models.json">
 					{status.models.map((model) => (
 						<View key={model.id} style={[styles.item, styles.between]}>
 							<View style={{ flex: 1, gap: 2 }}>

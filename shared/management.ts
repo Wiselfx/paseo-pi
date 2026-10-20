@@ -90,6 +90,58 @@ export const piCreateSkillRpc = defineRpc({
 	output: z.object({ path: z.string() }),
 });
 
+export const piSkillSourceCandidateSchema = z.object({
+	name: z.string(),
+	description: z.string(),
+	path: z.string(),
+	url: z.string(),
+	installed: z.boolean(),
+});
+
+export const piInspectSkillSourceRpc = defineRpc({
+	name: "paseo-pi.inspect-skill-source",
+	input: z.object({ source: z.string().trim().min(1).max(4_096) }),
+	output: z.object({ candidates: z.array(piSkillSourceCandidateSchema) }),
+});
+
+export const piInstallSkillSourceRpc = defineRpc({
+	name: "paseo-pi.install-skill-source",
+	input: z.object({
+		source: z.string().trim().min(1).max(4_096),
+		path: z.string().trim().max(4_096).optional(),
+	}),
+	output: z.object({ path: z.string(), name: z.string() }),
+});
+
+export const piFetchedModelSchema = z.object({
+	id: z.string(),
+	name: z.string().optional(),
+	reasoning: z.boolean().optional(),
+	input: z.array(z.enum(["text", "image"])).optional(),
+	contextWindow: z.number().nullable().optional(),
+	maxTokens: z.number().nullable().optional(),
+});
+
+export const piFetchModelsRpc = defineRpc({
+	name: "paseo-pi.fetch-models",
+	input: z.object({ provider: z.string().trim().min(1).max(128) }),
+	output: z.object({
+		baseUrl: z.string(),
+		api: z.string(),
+		models: z.array(piFetchedModelSchema),
+	}),
+});
+
+export const piAddModelsRpc = defineRpc({
+	name: "paseo-pi.add-models",
+	input: z.object({
+		revision: Revision,
+		provider: z.string().trim().min(1).max(128),
+		models: z.array(piFetchedModelSchema).min(1).max(1_000),
+	}),
+	output: z.object({ revision: Revision, added: z.number().int(), skipped: z.number().int() }),
+});
+
 export const piDeleteSkillRpc = defineRpc({
 	name: "paseo-pi.delete-skill",
 	input: z.object({ path: z.string().trim().min(1).max(4_096) }),
@@ -255,11 +307,13 @@ export const piListManagedSessionsRpc = defineRpc({
 export const piDeleteSessionRpc = defineRpc({
 	name: "paseo-pi.delete-session",
 	input: z.object({ sessionFile: z.string().trim().min(1).max(4_096) }),
-	output: z.object({ sessionFile: z.string() }),
+	output: z.object({ sessionFile: z.string(), deletedAgents: z.number().int() }),
 });
 
 export type PiExtensionEntry = z.infer<typeof piExtensionEntrySchema>;
 export type PiSkillEntry = z.infer<typeof piSkillEntrySchema>;
+export type PiSkillSourceCandidate = z.infer<typeof piSkillSourceCandidateSchema>;
+export type PiFetchedModel = z.infer<typeof piFetchedModelSchema>;
 export type PiProviderEntry = z.infer<typeof piProviderEntrySchema>;
 export type PiModelEntry = z.infer<typeof piModelEntrySchema>;
 export type PiManagedSession = z.infer<typeof piManagedSessionSchema>;

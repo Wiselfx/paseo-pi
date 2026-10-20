@@ -11,6 +11,7 @@ import {
 	deletePiSkill,
 	deleteProvider,
 	listManagedSessions,
+	paseoAgentIdsForSession,
 	listPiResources,
 	readPiModels,
 	readPiSettings,
@@ -377,5 +378,22 @@ describe("sessions", () => {
 		);
 		await deleteManagedSession(context, { sessionFile });
 		await expect(readFile(sessionFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+	});
+});
+
+describe("paseoAgentIdsForSession", () => {
+	it("matches the plugin persistence wrapper and ignores other agents", () => {
+		const agents = [
+			{
+				id: "agent-1",
+				persistence: {
+					metadata: { pluginProviderPersistence: { data: { sessionFile: "/root/.pi/sessions/a.jsonl" } } },
+				},
+			},
+			{ id: "agent-2", persistence: { metadata: {} } },
+			{ id: "agent-3" },
+		];
+		expect(paseoAgentIdsForSession(agents, "/root/.pi/sessions/./a.jsonl")).toEqual(["agent-1"]);
+		expect(paseoAgentIdsForSession(agents, "/root/.pi/sessions/b.jsonl")).toEqual([]);
 	});
 });

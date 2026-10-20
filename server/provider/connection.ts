@@ -25,6 +25,7 @@ export interface PiConnectionDeps {
 		noContextFiles: boolean;
 		noMcp: boolean;
 		reloadCommand?: boolean;
+		exposeModels?: boolean;
 	};
 	processEnv?: NodeJS.ProcessEnv;
 	spawn?: (options: ConstructorParameters<typeof PiRpc>[0], diagnostic?: (text: string) => void) => PiRpc;
@@ -101,6 +102,26 @@ export function createPiConnection(
 		);
 		try {
 			const state = (await rpc.request("get_state")) as { model?: PiWireModel };
+			if (deps.settings.exposeModels !== true) {
+				let levels = defaultThinkingLevels(state.model);
+				try {
+					const levelData = (await rpc.request("get_available_thinking_levels")) as {
+						levels?: string[];
+					};
+					if (Array.isArray(levelData?.levels) && levelData.levels.length > 0) {
+						levels = levelData.levels;
+					}
+				} catch {
+					// The default ladder is a fair description when the probe cannot answer.
+				}
+				const catalog: ProviderCatalog = {
+					models: [],
+					modes: [],
+					thinkingOptions: toThinkingOptions(levels),
+				};
+				catalogCache = { key, expiresAt: Date.now() + CATALOG_TTL_MS, catalog };
+				return catalog;
+			}
 			const data = (await rpc.request("get_available_models")) as { models?: unknown[] };
 			const wireModels = (data?.models ?? []).filter(
 				(model): model is PiWireModel =>

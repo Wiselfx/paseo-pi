@@ -3,19 +3,28 @@
 Paseo plugin for the [pi coding agent](https://github.com/badlogic/pi-mono). Paseo already ships a
 built-in `pi` provider; this plugin adds the management surface around it:
 
-- **Extensions & skills** — install, update, and remove pi packages; add or remove extension
-  paths; enable or disable built-in extensions; create and delete skills.
+- **Extensions & skills** — install, update, and remove pi packages (a pasted
+  `pi install npm:…` command is accepted); add or remove extension paths; enable or disable
+  built-in extensions; install skills from a GitHub link or write one by hand.
 - **Providers & models** — add, edit, and remove providers and models in `models.json`, including
-  write-only API keys; edit the raw JSON for advanced fields. Secret-looking values in the raw
-  editor are shown as `__PI_SECRET__` and restored when saved.
+  write-only API keys. Fetched models come from the provider itself: ask for its list, then pick
+  what to add. The raw JSON editor keeps advanced fields; secret-looking values show as
+  `__PI_SECRET__` and are restored when saved.
 - **Prompt** — edit `APPEND_SYSTEM.md`, or replace the system prompt with `SYSTEM.md`.
 - **Sessions** — list pi session files by working directory or query, refresh, and delete.
+  Deleting one also deletes the matching Paseo agent through the Paseo CLI, then removes the
+  JSONL file.
 - **Reload** — `/reload` in a pi-plugin chat, or the **Reload** composer pill, reloads pi's
   settings, models, extensions, skills, prompts and context files in place.
 - **Settings** — edit common settings or the full `settings.json`.
 
 The plugin registers a provider (`pi-plugin`, label **Pi Plugin**) with Paseo. It starts one
 `pi --mode rpc` child per Paseo session and speaks pi's RPC protocol.
+
+The provider advertises **no models by default**: Paseo's built-in `pi` provider already lists
+pi's catalog, and a second copy only clutters the model picker. Agents start on pi's configured
+default model, and Paseo's own "add model" flow still works. Turn on **Expose models** in the Pi
+launch settings if you want a separate model list for this provider.
 
 ## Requirements
 
@@ -38,8 +47,8 @@ command palette.
 ## Configuration
 
 Launch options live in the plugin's `pi-launch` settings screen: command, command-prefix args,
-inherited environment, session directory, the `--no-*` resource toggles, and the `/reload` command
-switch. These are host-scoped; a per-agent `providerOptions` override can replace them for one agent.
+inherited environment, session directory, the `--no-*` resource toggles, **Expose models**, and
+the `/reload` command switch. These are host-scoped; a per-agent `providerOptions` override can replace them for one agent.
 
 pi's own files are managed directly:
 

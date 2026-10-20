@@ -12,6 +12,11 @@ export const piSettingsSchema = z.object({
 	noContextFiles: z.boolean().default(false),
 	noMcp: z.boolean().default(false),
 	reloadCommand: z.boolean().default(true),
+	/**
+	 * Paseo's built-in pi provider already lists these models. Listing them here too puts every
+	 * one in the app twice, so the plugin's provider advertises none unless asked.
+	 */
+	exposeModels: z.boolean().default(false),
 });
 
 export type PiSettings = z.infer<typeof piSettingsSchema>;
