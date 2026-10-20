@@ -16,6 +16,13 @@ import {
 	piReadModelsRpc,
 	piReadPromptRpc,
 	piReadSettingsRpc,
+	piReadSkillRpc,
+	piProfileInfoRpc,
+	piPrepareProfileRpc,
+	piReadProjectRpc,
+	piRemoveProfileProviderRpc,
+	piSaveProjectPromptRpc,
+	piSaveProjectSettingsRpc,
 	piRemoveExtensionRpc,
 	piRemovePackageRpc,
 	piSaveModelRpc,
@@ -26,6 +33,7 @@ import {
 	piSetExtensionEnabledRpc,
 	piSetSkillEnabledRpc,
 	piUpdatePackageRpc,
+	piUpdateSkillRpc,
 	piWritePromptRpc,
 } from "./shared/management";
 import { piRefreshRpc, piStatusRpc } from "./shared/rpc";
@@ -44,6 +52,7 @@ import {
 	listPiResources,
 	readPiModels,
 	readPiSettings,
+	readPiSkill,
 	readPrompt,
 	removePiExtension,
 	removePiPackage,
@@ -55,12 +64,24 @@ import {
 	setPiExtensionEnabled,
 	setPiSkillEnabled,
 	updatePiPackages,
+	updatePiSkill,
 	writePrompt,
 } from "./server/management";
 import { fetchProviderModels } from "./server/model-source";
 import { inspectGitHubSkill, installGitHubSkill } from "./server/skill-source";
+import { readProject, saveProjectPrompt, saveProjectSettings } from "./server/project";
 import { clearPiStatusCache, piConfigDir, piStatus, piSessionDir } from "./server/pi-status";
+import { piAgentDir } from "./server/paths";
 import { ensureBuiltinReloadExtension } from "./server/builtin-reload";
+import {
+	assertProfileSlot,
+	prepareProfileAgentDir,
+	profileEntry,
+	registerProfileProvider,
+	resolveProfileAgentDir,
+	unregisterProfileProvider,
+	validateProfileName,
+} from "./server/profiles";
 
 export default function contribute(server: PluginServerContext) {
 	const launchSettings = server.registerSettings(piSettings);
@@ -74,14 +95,20 @@ export default function contribute(server: PluginServerContext) {
 		return buildManagementContext({
 			settings,
 			sessionDir: piSessionDir(settings, process.env),
-			env: { ...process.env, PI_CODING_AGENT_DIR: piConfigDir(process.env) },
+			env: { ...process.env, PI_CODING_AGENT_DIR: piConfigDir(settings, process.env) },
 		});
 	};
 
 	const syncBuiltinReload = async (state: Awaited<ReturnType<typeof launchSettings.read>>) => {
 		const settings = state.status === "ready" ? state.values : PI_SETTINGS_DEFAULTS;
 		try {
-			await ensureBuiltinReloadExtension(piConfigDir(process.env), settings.reloadCommand !== false);
+			const directories = new Set([
+				piAgentDir(process.env),
+				...settings.profiles.map((profile) => profile.agentDir),
+			]);
+			for (const directory of directories) {
+				await ensureBuiltinReloadExtension(directory, settings.reloadCommand !== false);
+			}
 		} catch (error) {
 			console.error(
 				`[paseo-pi] could not install the built-in reload extension: ${
@@ -100,6 +127,37 @@ export default function contribute(server: PluginServerContext) {
 	const stopBuiltinReload = launchSettings.subscribe(syncBuiltinReload);
 
 	server.handle(piStatusRpc, async () => piStatus(await readSettings(), process.env));
+
+	server.handle(piProfileInfoRpc, async () => {
+		const settings = await readSettings();
+		return {
+			defaultAgentDir: piAgentDir(process.env),
+			defaultSessionDir: piSessionDir({ ...settings, managedProfile: "" }, process.env),
+		};
+	});
+	server.handle(piPrepareProfileRpc, async (input, handlerContext) => {
+		const name = validateProfileName(input.name);
+		const settings = await readSettings();
+		const agentDir = resolveProfileAgentDir(name, input.agentDir);
+		assertProfileSlot(settings, name, agentDir, piAgentDir(process.env));
+		await prepareProfileAgentDir(agentDir);
+		await registerProfileProvider(handlerContext.paseo, name, agentDir);
+		try {
+			await ensureBuiltinReloadExtension(agentDir, settings.reloadCommand !== false);
+		} catch (error) {
+			console.error(
+				`[paseo-pi] could not install the reload extension in ${agentDir}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+		return profileEntry(name, agentDir);
+	});
+	server.handle(piRemoveProfileProviderRpc, async (input, handlerContext) => {
+		const name = validateProfileName(input.name);
+		await unregisterProfileProvider(handlerContext.paseo, name);
+		return { name };
+	});
 
 	server.handle(piRefreshRpc, async () => {
 		clearPiStatusCache();
@@ -166,6 +224,8 @@ export default function contribute(server: PluginServerContext) {
 	server.handle(piDeleteSkillRpc, async (input) => ({
 		path: await deletePiSkill(await context(), input),
 	}));
+	server.handle(piReadSkillRpc, async (input) => readPiSkill(await context(), input));
+	server.handle(piUpdateSkillRpc, async (input) => updatePiSkill(await context(), input));
 
 	server.handle(piReadSettingsRpc, async () => readPiSettings((await context()).agentDir));
 	server.handle(piSaveSettingsRpc, async (input) =>
@@ -231,6 +291,14 @@ export default function contribute(server: PluginServerContext) {
 			revision: input.revision,
 			json: input.json,
 		}),
+	);
+
+	server.handle(piReadProjectRpc, async (input) => readProject(await context(), input));
+	server.handle(piSaveProjectSettingsRpc, async (input) =>
+		saveProjectSettings(await context(), input),
+	);
+	server.handle(piSaveProjectPromptRpc, async (input) =>
+		saveProjectPrompt(await context(), input),
 	);
 
 	server.handle(piReadPromptRpc, async (input) => readPrompt(await context(), input.kind));

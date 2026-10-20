@@ -5,26 +5,24 @@ import { homedir } from "node:os";
 import { promisify } from "node:util";
 import type { PiModelSummary, PiStatus } from "../shared/rpc";
 import type { PiSettings } from "../shared/settings";
-import { defaultSessionDir, resolveSessionDir } from "./sessions";
 import { PiRpc } from "./provider/rpc";
 import { buildSessionArgs } from "./provider/options";
 import type { PiWireModel } from "./provider/models";
-import { piAgentDir } from "./paths";
+import { managedAgentDir } from "./paths";
 
 const execFileAsync = promisify(execFile);
 const TTL_MS = 20_000;
 
 let cached: { key: string; expiresAt: number; value: PiStatus } | undefined;
 
-export function piConfigDir(env: NodeJS.ProcessEnv): string {
-	return piAgentDir(env);
+export function piConfigDir(settings: PiSettings, env: NodeJS.ProcessEnv): string {
+	return managedAgentDir(settings, env);
 }
 
 export function piSessionDir(settings: PiSettings, env: NodeJS.ProcessEnv): string {
-	return resolveSessionDir({
-		option: settings.sessionDir,
-		processEnv: env,
-	}) || defaultSessionDir(env);
+	if (settings.sessionDir.trim()) return settings.sessionDir.trim();
+	if (env.PI_CODING_AGENT_SESSION_DIR?.trim()) return env.PI_CODING_AGENT_SESSION_DIR.trim();
+	return join(piConfigDir(settings, env), "sessions");
 }
 
 async function probeVersion(command: string, args: string[], env: NodeJS.ProcessEnv) {
@@ -100,7 +98,7 @@ async function fileStamp(path: string): Promise<string> {
 }
 
 export async function piStatus(settings: PiSettings, env: NodeJS.ProcessEnv): Promise<PiStatus> {
-	const configDir = piConfigDir(env);
+	const configDir = piConfigDir(settings, env);
 	const key = JSON.stringify([
 		settings,
 		configDir,
@@ -126,7 +124,7 @@ export async function piStatus(settings: PiSettings, env: NodeJS.ProcessEnv): Pr
 		sessionDir: piSessionDir(settings, env),
 		modelCount: models.length,
 		models,
-		configDir: piConfigDir(env),
+		configDir,
 	};
 	cached = { key, expiresAt: Date.now() + TTL_MS, value };
 	return value;

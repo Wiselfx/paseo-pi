@@ -2,6 +2,7 @@ import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
 const LongText = z.string().max(2_000_000);
+const PiSettingsValueSchema = z.record(z.string(), z.unknown());
 const Revision = z.string().min(1).max(128);
 
 /** Raw models.json replaces secret-looking values with this marker; saves restore them. */
@@ -161,7 +162,95 @@ export const piDeleteSkillRpc = defineRpc({
 	output: z.object({ path: z.string() }),
 });
 
-const PiSettingsValueSchema = z.record(z.string(), z.unknown());
+export const piProfileSchema = z.object({
+	name: z.string(),
+	providerId: z.string(),
+	label: z.string(),
+	agentDir: z.string(),
+});
+
+export const piProfileInfoRpc = defineRpc({
+	name: "paseo-pi.profile-info",
+	input: z.object({}),
+	output: z.object({
+		defaultAgentDir: z.string(),
+		defaultSessionDir: z.string(),
+	}),
+});
+
+export const piPrepareProfileRpc = defineRpc({
+	name: "paseo-pi.prepare-profile",
+	input: z.object({
+		name: z
+			.string()
+			.trim()
+			.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers, and single hyphens.")
+			.max(48),
+		agentDir: z.string().trim().max(4_096).optional(),
+	}),
+	output: piProfileSchema,
+});
+
+export const piRemoveProfileProviderRpc = defineRpc({
+	name: "paseo-pi.remove-profile-provider",
+	input: z.object({ name: z.string().trim().min(1).max(48) }),
+	output: z.object({ name: z.string() }),
+});
+
+export const piReadSkillRpc = defineRpc({
+	name: "paseo-pi.read-skill",
+	input: z.object({ path: z.string().trim().min(1).max(4_096) }),
+	output: z.object({
+		path: z.string(),
+		revision: Revision,
+		content: z.string().max(512 * 1024),
+	}),
+});
+
+export const piUpdateSkillRpc = defineRpc({
+	name: "paseo-pi.update-skill",
+	input: z.object({
+		path: z.string().trim().min(1).max(4_096),
+		revision: Revision,
+		content: z.string().max(512 * 1024),
+	}),
+	output: z.object({ path: z.string(), revision: Revision }),
+});
+
+export const piReadProjectRpc = defineRpc({
+	name: "paseo-pi.read-project",
+	input: z.object({ cwd: z.string().trim().min(1).max(4_096) }),
+	output: z.object({
+		cwd: z.string(),
+		settingsPath: z.string(),
+		revision: Revision,
+		settings: PiSettingsValueSchema,
+		promptPath: z.string(),
+		promptRevision: Revision,
+		prompt: z.string(),
+	}),
+});
+
+export const piSaveProjectSettingsRpc = defineRpc({
+	name: "paseo-pi.save-project-settings",
+	input: z.object({
+		cwd: z.string().trim().min(1).max(4_096),
+		revision: Revision,
+		settings: PiSettingsValueSchema,
+	}),
+	output: z.object({ cwd: z.string(), revision: Revision }),
+});
+
+export const piSaveProjectPromptRpc = defineRpc({
+	name: "paseo-pi.save-project-prompt",
+	input: z.object({
+		cwd: z.string().trim().min(1).max(4_096),
+		revision: Revision,
+		content: z.string().max(2_000_000),
+	}),
+	output: z.object({ cwd: z.string(), revision: Revision }),
+});
+
 
 export const piReadSettingsRpc = defineRpc({
 	name: "paseo-pi.read-settings",
@@ -323,6 +412,7 @@ export const piDeleteSessionRpc = defineRpc({
 	output: z.object({ sessionFile: z.string(), deletedAgents: z.number().int() }),
 });
 
+export type PiProfileEntry = z.infer<typeof piProfileSchema>;
 export type PiExtensionEntry = z.infer<typeof piExtensionEntrySchema>;
 export type PiSkillEntry = z.infer<typeof piSkillEntrySchema>;
 export type PiSkillSourceCandidate = z.infer<typeof piSkillSourceCandidateSchema>;

@@ -40,6 +40,13 @@ export interface PaseoApiLike {
 			filter: { includeArchived: boolean; includeBackground: boolean };
 		}): Promise<{ entries?: readonly unknown[] }>;
 	};
+	config?: {
+		get(): Promise<{ config: { providers?: Record<string, unknown> } }>;
+		patch(patch: {
+			providers?: Record<string, unknown>;
+			removeProviders?: string[];
+		}): Promise<unknown>;
+	};
 }
 
 export interface ManagementContext {
@@ -1071,6 +1078,65 @@ export async function deletePiSkill(context: ManagementContext, input: { path: s
 	return file;
 }
 
+function skillRevision(text: string): string {
+	return createHash("sha256").update(text).digest("hex");
+}
+
+async function editableSkillPath(agentDir: string, requestedPath: string) {
+	const requested = extensionPath(requestedPath, agentDir);
+	if (basename(requested) !== "SKILL.md") throw new Error("Only a skill's SKILL.md can be edited");
+	const file = await realpath(requested);
+	const directory = dirname(file);
+	const requestedDirectory = await realpath(dirname(requested));
+	if (requestedDirectory !== directory) {
+		throw new Error("The skill file is a symlink; edit it in its real directory");
+	}
+	const roots = await allowedSkillRoots(agentDir);
+	const allowed = roots.some((root) => inside(root, directory));
+	if (!allowed) {
+		throw new Error("That skill is outside the user skill directories. Edit its package source instead.");
+	}
+	if (!(await stat(file)).isFile()) throw new Error("The skill file is not a regular file");
+	return file;
+}
+
+export async function readPiSkill(
+	context: ManagementContext,
+	input: { path: string },
+): Promise<{ path: string; revision: string; content: string }> {
+	const file = await editableSkillPath(context.agentDir, input.path);
+	const content = await readFile(file, "utf8");
+	if (Buffer.byteLength(content, "utf8") > 512 * 1024) {
+		throw new Error("That skill is larger than 512 KB; edit it in a text editor");
+	}
+	return { path: file, revision: skillRevision(content), content };
+}
+
+export async function updatePiSkill(
+	context: ManagementContext,
+	input: { path: string; revision: string; content: string },
+): Promise<{ path: string; revision: string }> {
+	const file = await editableSkillPath(context.agentDir, input.path);
+	const current = await readFile(file, "utf8");
+	if (Buffer.byteLength(current, "utf8") > 512 * 1024) {
+		throw new Error("That skill is larger than 512 KB; edit it in a text editor");
+	}
+	if (skillRevision(current) !== input.revision) {
+		throw new Error("The skill changed on disk. Reload it and try again.");
+	}
+	if (Buffer.byteLength(input.content, "utf8") > 512 * 1024) {
+		throw new Error("That skill is larger than 512 KB; edit it in a text editor");
+	}
+	if (!/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u.test(input.content)) {
+		throw new Error("A SKILL.md must start with YAML frontmatter between --- lines");
+	}
+	if (!/^name:\s*\S+/mu.test(input.content) || !/^description:\s*\S+/mu.test(input.content)) {
+		throw new Error("A SKILL.md frontmatter must keep name and description");
+	}
+	await atomicWrite(file, input.content);
+	return { path: file, revision: skillRevision(input.content) };
+}
+
 export async function setPiSkillEnabled(input: {
 	agentDir: string;
 	path: string;
@@ -1156,16 +1222,23 @@ export async function listManagedSessions(
 type PaseoAgentLike = {
 	id: string;
 	persistence?: {
+		nativeHandle?: unknown;
 		metadata?: { pluginProviderPersistence?: { data?: { sessionFile?: unknown } } };
 	};
 };
 
-/** Paseo stores the pi session path inside a plugin-provider persistence wrapper. */
+/**
+ * Built-in `pi` stores the session file as the persistence native handle. Agents created by the
+ * retired `pi-plugin` bridge keep it in the plugin-provider metadata wrapper instead. Match both,
+ * so deleting a session removes its Paseo agent whichever provider created it.
+ */
 export function paseoAgentIdsForSession(agents: PaseoAgentLike[], sessionFile: string): string[] {
 	const wanted = resolve(sessionFile);
 	const ids: string[] = [];
 	for (const agent of agents) {
-		const stored = agent.persistence?.metadata?.pluginProviderPersistence?.data?.sessionFile;
+		const native = agent.persistence?.nativeHandle;
+		const wrapped = agent.persistence?.metadata?.pluginProviderPersistence?.data?.sessionFile;
+		const stored = typeof native === "string" ? native : wrapped;
 		if (typeof stored === "string" && resolve(stored) === wanted) ids.push(agent.id);
 	}
 	return ids;

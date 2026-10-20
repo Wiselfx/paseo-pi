@@ -15,6 +15,7 @@ import {
 	listPiResources,
 	readPiModels,
 	readPiSettings,
+	readPiSkill,
 	readPrompt,
 	removePiExtension,
 	saveModel,
@@ -24,6 +25,7 @@ import {
 	setBuiltinExtension,
 	setPiExtensionEnabled,
 	setPiSkillEnabled,
+	updatePiSkill,
 	writePrompt,
 } from "../server/management";
 import { PI_MODELS_SECRET_MASK } from "../shared/management";
@@ -333,6 +335,40 @@ describe("skills and prompts", () => {
 		expect(agentDir).toBeTruthy();
 	});
 
+	it("reads and edits a user skill with a revision check", async () => {
+		const { context } = await fixture();
+		const created = await createPiSkill(context, {
+			name: "editable-skill",
+			description: "Before.",
+			instructions: "Old body.",
+		});
+		const read = await readPiSkill(context, { path: created.path });
+		expect(read.content).toContain("Old body.");
+		const updated = await updatePiSkill(context, {
+			path: created.path,
+			revision: read.revision,
+			content: read.content.replace("Old body.", "New body."),
+		});
+		expect(await readFile(created.path, "utf8")).toContain("New body.");
+		expect(updated.revision).not.toBe(read.revision);
+		await expect(
+			updatePiSkill({
+				...context,
+			}, {
+				path: created.path,
+				revision: read.revision,
+				content: read.content,
+			}),
+		).rejects.toThrow(/changed on disk/u);
+		await expect(
+			updatePiSkill(context, {
+				path: created.path,
+				revision: updated.revision,
+				content: "No frontmatter",
+			}),
+		).rejects.toThrow(/frontmatter/u);
+	});
+
 	it("toggles one skill or extension without touching the others", async () => {
 		const { agentDir, context } = await fixture();
 		const first = await createPiSkill(context, {
@@ -444,7 +480,12 @@ describe("paseoAgentIdsForSession", () => {
 			{ id: "agent-2", persistence: { metadata: {} } },
 			{ id: "agent-3" },
 		];
+		const builtIn = [
+			{ id: "agent-4", persistence: { provider: "pi", sessionId: "s", nativeHandle: "/root/.pi/sessions/c.jsonl" } },
+			{ id: "agent-5", persistence: { provider: "pi", sessionId: "t", nativeHandle: "/root/.pi/sessions/d.jsonl" } },
+		];
 		expect(paseoAgentIdsForSession(agents, "/root/.pi/sessions/./a.jsonl")).toEqual(["agent-1"]);
 		expect(paseoAgentIdsForSession(agents, "/root/.pi/sessions/b.jsonl")).toEqual([]);
+		expect(paseoAgentIdsForSession(builtIn, "/root/.pi/sessions/./c.jsonl")).toEqual(["agent-4"]);
 	});
 });

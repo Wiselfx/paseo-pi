@@ -12,3 +12,15 @@ export function piAgentDir(env: NodeJS.ProcessEnv): string {
 		join(homedir(), ".pi", "agent")
 	);
 }
+
+/**
+ * The agent directory the management panel is currently editing. Named profiles are plain pi
+ * agent directories, selected by the host-scoped `managedProfile` launch setting.
+ */
+export function managedAgentDir(settings: { managedProfile: string; profiles: ReadonlyArray<{ name: string; agentDir: string }> }, env: NodeJS.ProcessEnv): string {
+	if (settings.managedProfile) {
+		const profile = settings.profiles.find((entry) => entry.name === settings.managedProfile);
+		if (profile) return profile.agentDir;
+	}
+	return piAgentDir(env);
+}
