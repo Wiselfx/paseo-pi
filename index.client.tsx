@@ -42,7 +42,7 @@ export default function contribute(client: PluginClientContext) {
 		id: "pi-open",
 		title: "Manage Pi",
 		icon: "SquareTerminal",
-		keywords: ["pi", "provider", "agent", "models", "extensions", "skills", "sessions", "prompt"],
+		keywords: ["pi", "provider", "agent", "models", "extensions", "skills", "sessions", "prompt", "profiles", "project"],
 		context: "global",
 		onSelect({ openScreen }) {
 			openScreen({ screenId: PI_SETTINGS_SCREEN_ID });
@@ -56,6 +56,26 @@ export default function contribute(client: PluginClientContext) {
 		context: "global",
 		onSelect({ openScreen }) {
 			openScreen({ screenId: PI_SETTINGS_SCREEN_ID, params: { tab: "models" } });
+		},
+	});
+	const removeProfiles = client.addCommandCenterItem({
+		id: "pi-profiles",
+		title: "Pi profiles",
+		icon: "Users",
+		keywords: ["pi", "profiles", "agent directory", "provider", "separate settings"],
+		context: "global",
+		onSelect({ openScreen }) {
+			openScreen({ screenId: PI_SETTINGS_SCREEN_ID, params: { tab: "profiles" } });
+		},
+	});
+	const removeProject = client.addCommandCenterItem({
+		id: "pi-project",
+		title: "Project Pi settings",
+		icon: "FolderCog",
+		keywords: ["pi", "project", "settings", "append system", ".pi"],
+		context: "global",
+		onSelect({ openScreen }) {
+			openScreen({ screenId: PI_SETTINGS_SCREEN_ID, params: { tab: "project" } });
 		},
 	});
 	const removeSessions = client.addCommandCenterItem({
@@ -80,6 +100,8 @@ export default function contribute(client: PluginClientContext) {
 	});
 	return () => {
 		removeConfigure();
+		removeProject();
+		removeProfiles();
 		removeSessions();
 		removeModels();
 		removeOpen();

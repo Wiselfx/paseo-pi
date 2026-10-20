@@ -24,7 +24,9 @@ export function OverviewTab({
 	styles: ManageStyles;
 	theme: ManageTheme;
 	onOpenSettings(): void;
-	onTab(tab: "resources" | "models" | "prompt" | "sessions" | "settings"): void;
+	onTab(
+		tab: "profiles" | "resources" | "models" | "prompt" | "project" | "sessions" | "settings",
+	): void;
 }) {
 	const statusRpc = useRpc(piStatusRpc);
 	const refreshRpc = useRpc(piRefreshRpc);
@@ -116,6 +118,12 @@ export function OverviewTab({
 				<Card styles={styles}>
 					<ActionRow
 						styles={styles}
+						title="Profiles"
+						hint="Create separate pi agent directories exposed as Pi providers."
+						onPress={() => onTab("profiles")}
+					/>
+					<ActionRow
+						styles={styles}
 						title="Extensions & skills"
 						hint="Install packages, add extensions, and switch each resource on or off."
 						onPress={() => onTab("resources")}
@@ -131,6 +139,12 @@ export function OverviewTab({
 						title="Prompt"
 						hint="Add to or replace pi's system prompt."
 						onPress={() => onTab("prompt")}
+					/>
+					<ActionRow
+						styles={styles}
+						title="Project"
+						hint="Edit .pi/settings.json and .pi/APPEND_SYSTEM.md for one project."
+						onPress={() => onTab("project")}
 					/>
 					<ActionRow
 						styles={styles}

@@ -42,17 +42,17 @@ pi storage used by this plugin:
 | omp surface | omp behavior | pi equivalent | Status |
 |---|---|---|---|
 | Provider launch profile | Command prefix, inherited env names, session directory, RPC timeout, role models, denied tools | Launch settings screen: command, args, inherited env, session dir, resource/MCP toggles; per-agent provider options; models.json for roles is not a pi concept | Covered for launch; role-model fields N/A |
-| Settings editor | Categorized native config, draft/dirty state, revision conflict, reset, workspace overrides | Settings tab: default provider/model/thinking, enabled models, default tools, session dir, skill commands; full `settings.json` JSON editor; revision conflict | Covered; no categorized catalog or workspace overrides |
+| Settings editor | Categorized native config, draft/dirty state, revision conflict, reset, workspace overrides | Settings tab: default provider/model/thinking, enabled models, default tools, session dir, skill commands; full `settings.json` JSON editor; revision conflict; Project tab edits `.pi/settings.json` and `.pi/APPEND_SYSTEM.md` | Covered; no categorized catalog |
 | Provider setup | Informational provider/profile card; native config provider sections | Providers & models tab: add/edit/remove provider (`name`, label, base URL, API, write-only key); raw `models.json` editor with masked secrets | Covered; add/edit flow is new |
 | Add models | Select existing catalog models through model roles / enabledModels; no add-model form | Fetch the provider's own `/models`, filter and select, then add in one write; add/edit/delete a model per provider; raw JSON retains advanced fields | New (beyond omp) |
 | Plugins/extensions install | Install from source, enable, disable, upgrade, uninstall, inspect config | Install package from npm/git/URL/local via `pi install`; update one/all via `pi update`; remove via `pi remove`; add/remove extension paths in settings | Covered |
 | Plugin config | Per-plugin settings incl. secrets, write-only | Resource filters and all other package options live in the raw `settings.json` editor; no per-package form | Partial |
 | Package enable/disable | Toggle a plugin without uninstalling | No pi equivalent: remove the package, or filter its resources in settings. Extensions and skills have per-item switches; built-ins have their own | Partial (deliberate) |
-| Skills | No skill manager in omp plugin | List user/agents/package skills; install from a GitHub file or repository; write a `SKILL.md` by hand; switch or delete each user/agents skill | New (beyond omp) |
+| Skills | No skill manager in omp plugin | List user/agents/package skills; install from a GitHub file or repository; write or edit a `SKILL.md` by hand; switch or delete each user/agents skill | New (beyond omp) |
 | Prompt | No system-prompt editor in omp plugin | Prompt tab edits `APPEND_SYSTEM.md` or `SYSTEM.md`, with revision checks and clear | New (beyond omp) |
 | Session history | `Sessions` composer pill: recent prompts for one cwd, read-only, 20 shown | Sessions tab: list by cwd/query, refresh, show title/id/path; delete removes the Paseo agent and the pi file | Covered + new delete |
 | Diagnostics | Provider health, binary status/path, process cleanup, capabilities | Overview: availability, version, model count, catalog, diagnostic, config/session paths; Refresh | Partial; no binary health or process cleanup |
-| Page layout | Global screen with 7 tabs + workspace panel | Global screen with 6 tabs (Overview, Extensions & skills, Providers & models, Prompt, Sessions, Settings) | Covered in spirit |
+| Page layout | Global screen with 7 tabs + workspace panel | Global screen with tabs (Overview, Profiles, Extensions & skills, Providers & models, Prompt, Project, Sessions, Settings) | Covered in spirit |
 | Sidebar / command center | `OMP` row, `OMP Hub` row, command items | `Pi` sidebar row and command items: Manage Pi, Providers & models, Pi sessions, Configure Pi launch | Covered |
 | MCP management | MCP pill, auth card, server toggles | pi-native `mcp.json` and `/mcp`; provider rejects per-session MCP config | N/A (deliberate) |
 | Hub processes | Local Hub process list/popover | No pi equivalent | N/A |
@@ -61,14 +61,16 @@ pi storage used by this plugin:
 | Composer pills | Per-agent MCP/hub/memory/sessions/quota | One **Reload** pill per built-in `pi` agent (also legacy `pi-plugin`); everything else stays in the Pi screen | Partial, deliberate |
 | Tool policy boundary | Disallowed native tools, fail-closed preapproval | Provider rejects session tool policies rather than broadening them | N/A (deliberate) |
 | Timeline transforms | omp image tool rendering, MCP auth card | None; pi tool calls already render through the standard timeline | N/A |
-| Multiple stores/profiles | omp store picker | One pi agent directory, selected by `PI_CODING_AGENT_DIR` | N/A |
+| Multiple stores/profiles | omp store picker | Profiles tab: named agent directories exposed as `Pi · name` provider overrides, each with its own settings, models, skills, sessions, and prompt | Covered |
 
 ## Plugin RPCs added for the pi surface
 
 `paseo-pi.list-resources`, `install-package`, `update-package`, `remove-package`,
 `add-extension`, `remove-extension`, `set-builtin-extension`, `set-extension-enabled`,
-`inspect-skill-source`,
-`install-skill-source`, `create-skill`, `delete-skill`, `set-skill-enabled`, `read-settings`, `save-settings`,
+`inspect-skill-source`, `install-skill-source`, `create-skill`, `read-skill`, `update-skill`,
+`delete-skill`, `set-skill-enabled`, `read-settings`, `save-settings`, `profile-info`,
+`prepare-profile`, `remove-profile-provider`, `read-project`, `save-project-settings`,
+`save-project-prompt`,
 `read-models`, `fetch-models`, `add-models`, `save-provider`, `delete-provider`, `save-model`,
 `delete-model`, `save-models-json`, `read-prompt`, `write-prompt`, `list-sessions`,
 `delete-session`.

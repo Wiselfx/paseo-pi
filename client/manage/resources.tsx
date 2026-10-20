@@ -9,10 +9,12 @@ import {
 	piInstallPackageRpc,
 	piInstallSkillSourceRpc,
 	piListResourcesRpc,
+	piReadSkillRpc,
 	piSetBuiltinExtensionRpc,
 	piSetExtensionEnabledRpc,
 	piSetSkillEnabledRpc,
 	piUpdatePackageRpc,
+	piUpdateSkillRpc,
 	piRemoveExtensionRpc,
 	piRemovePackageRpc,
 	type PiExtensionEntry,
@@ -57,6 +59,8 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 	const inspectSkillRpc = useRpc(piInspectSkillSourceRpc);
 	const installSkillRpc = useRpc(piInstallSkillSourceRpc);
 	const deleteRpc = useRpc(piDeleteSkillRpc);
+	const readSkillRpc = useRpc(piReadSkillRpc);
+	const updateSkillRpc = useRpc(piUpdateSkillRpc);
 
 	const [extensions, setExtensions] = useState<PiExtensionEntry[]>([]);
 	const [skills, setSkills] = useState<PiSkillEntry[]>([]);
@@ -77,6 +81,11 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 	const [skillName, setSkillName] = useState("");
 	const [skillDescription, setSkillDescription] = useState("");
 	const [skillInstructions, setSkillInstructions] = useState("");
+	const [editingSkill, setEditingSkill] = useState<PiSkillEntry | null>(null);
+	const [skillContent, setSkillContent] = useState("");
+	const [skillOriginal, setSkillOriginal] = useState("");
+	const [skillRevision, setSkillRevision] = useState("");
+	const [skillEditLoading, setSkillEditLoading] = useState(false);
 
 	const load = async () => {
 		setLoading(true);
@@ -164,6 +173,38 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 			setSkillSource("");
 			setShowSkillForm(false);
 			return `Installed ${installed.name}. New sessions load it.`;
+		});
+
+	const openSkillEditor = async (skill: PiSkillEntry) => {
+		setSkillEditLoading(true);
+		setError(null);
+		setNotice(null);
+		try {
+			const skillFile = await readSkillRpc({ path: skill.path });
+			setEditingSkill(skill);
+			setSkillContent(skillFile.content);
+			setSkillOriginal(skillFile.content);
+			setSkillRevision(skillFile.revision);
+		} catch (failure) {
+			setError(failure instanceof Error ? failure.message : String(failure));
+		} finally {
+			setSkillEditLoading(false);
+		}
+	};
+
+	const saveSkill = () =>
+		void run(async () => {
+			if (!editingSkill) return;
+			await updateSkillRpc({
+				path: editingSkill.path,
+				revision: skillRevision,
+				content: skillContent,
+			});
+			setEditingSkill(null);
+			setSkillContent("");
+			setSkillOriginal("");
+			setSkillRevision("");
+			return `Saved ${editingSkill.name}. New sessions use the change.`;
 		});
 
 	const createSkill = () =>
@@ -599,6 +640,47 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 					</Card>
 				) : null}
 
+				{editingSkill ? (
+					<Card styles={styles}>
+						<View style={styles.form}>
+							<Field
+								styles={styles}
+								label={`Edit ${editingSkill.name}`}
+								hint="Edit the SKILL.md file directly, including its YAML frontmatter. Name and description are required."
+							>
+								<TextArea
+									styles={styles}
+									value={skillContent}
+									onChangeText={setSkillContent}
+									minHeight={360}
+									accessibilityLabel={`${editingSkill.name} SKILL.md`}
+								/>
+							</Field>
+							<View style={styles.formFooter}>
+								<Button
+									styles={styles}
+									label="Save skill"
+									variant="primary"
+									loading={busy}
+									disabled={!skillContent.trim() || skillContent === skillOriginal}
+									onPress={saveSkill}
+								/>
+								<Button
+									styles={styles}
+									label="Cancel"
+									variant="ghost"
+									onPress={() => {
+										setEditingSkill(null);
+										setSkillContent("");
+										setSkillOriginal("");
+										setSkillRevision("");
+									}}
+								/>
+							</View>
+						</View>
+					</Card>
+				) : null}
+
 				<Card styles={styles}>
 					{loading && skills.length === 0 ? (
 						<EmptyState styles={styles} title="Reading skills…" />
@@ -635,6 +717,13 @@ export function ResourcesTab({ styles }: { styles: ManageStyles }) {
 								actions={
 									skill.source === "package" ? undefined : (
 										<>
+											<Button
+												styles={styles}
+												label="Edit"
+												variant="outline"
+												disabled={busy || skillEditLoading}
+												onPress={() => void openSkillEditor(skill)}
+											/>
 											<Switch
 												styles={styles}
 												label={`${skill.name} enabled`}

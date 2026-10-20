@@ -3,19 +3,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { ModelsTab } from "./models";
 import { OverviewTab } from "./overview";
+import { ProfilesTab } from "./profiles";
+import { ProjectTab } from "./project";
 import { PromptTab } from "./prompt";
 import { ResourcesTab } from "./resources";
 import { SessionsTab } from "./sessions";
 import { SettingsTab } from "./settings";
 import { useStyles } from "./shared";
 
-type TabId = "overview" | "resources" | "models" | "prompt" | "sessions" | "settings";
+type TabId = "overview" | "profiles" | "resources" | "models" | "prompt" | "project" | "sessions" | "settings";
 
 const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
 	{ id: "overview", label: "Overview" },
+	{ id: "profiles", label: "Profiles" },
 	{ id: "resources", label: "Extensions & skills" },
 	{ id: "models", label: "Providers & models" },
 	{ id: "prompt", label: "Prompt" },
+	{ id: "project", label: "Project" },
 	{ id: "sessions", label: "Sessions" },
 	{ id: "settings", label: "Settings" },
 ];
@@ -33,6 +37,7 @@ export function PiManageScreen({
 	const styles = useStyles(theme, layout.compact);
 	const initial = isTab(params.tab) ? params.tab : "overview";
 	const [tab, setTab] = useState<TabId>(initial);
+	const [profileEpoch, setProfileEpoch] = useState(0);
 	const [focusedTab, setFocusedTab] = useState<TabId | null>(null);
 	const tabScroll = useRef<ScrollView>(null);
 	const pageScroll = useRef<ScrollView>(null);
@@ -50,20 +55,32 @@ export function PiManageScreen({
 	}, [tab]);
 	const content = useMemo(() => {
 		switch (tab) {
+			case "profiles":
+				return <ProfilesTab styles={styles} onProfileChanged={() => setProfileEpoch((value) => value + 1)} />;
 			case "resources":
-				return <ResourcesTab styles={styles} />;
+				return <ResourcesTab key={profileEpoch} styles={styles} />;
 			case "models":
-				return <ModelsTab styles={styles} />;
+				return <ModelsTab key={profileEpoch} styles={styles} />;
 			case "prompt":
-				return <PromptTab styles={styles} />;
+				return <PromptTab key={profileEpoch} styles={styles} />;
+			case "project":
+				return <ProjectTab key={profileEpoch} styles={styles} />;
 			case "sessions":
-				return <SessionsTab styles={styles} />;
+				return <SessionsTab key={profileEpoch} styles={styles} />;
 			case "settings":
-				return <SettingsTab styles={styles} />;
+				return <SettingsTab key={profileEpoch} styles={styles} />;
 			default:
-				return <OverviewTab styles={styles} theme={theme} onOpenSettings={openSettings} onTab={setTab} />;
+				return (
+					<OverviewTab
+						key={profileEpoch}
+						styles={styles}
+						theme={theme}
+						onOpenSettings={openSettings}
+						onTab={setTab}
+					/>
+				);
 		}
-	}, [openSettings, styles, tab, theme]);
+	}, [openSettings, profileEpoch, styles, tab, theme]);
 
 	return (
 		<View style={{ flex: 1 }}>

@@ -1,5 +1,5 @@
 {
   "id": "paseo-pi",
-  "description": "Management surface for the pi coding agent: extensions, skills, providers, models, prompts, sessions, settings, and /reload.",
+  "description": "Management surface for the pi coding agent: profiles, extensions, skills, providers, models, prompts, project settings, sessions, settings, and /reload.",
   "requirements": { "paseo": "^0.12.0" }
 }

@@ -19,12 +19,14 @@ stated otherwise.
 | `index.client.tsx` | Client entry: sidebar row, management screen, launch-settings screen, command-center items. |
 | `shared/` | Zod contracts shared by client and server; no runtime state. |
 | `shared/constants.ts` | IDs: plugin `paseo-pi`, built-in provider `pi`, legacy provider `pi-plugin`, screen `pi-config`, launch settings `paseo-pi-launch`, persistence version `1`. |
-| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, the context/MCP toggles, `reloadCommand`). |
+| `shared/settings.ts` | Launch settings schema (`command`, `args`, `inheritEnv`, `sessionDir`, the context/MCP toggles, `reloadCommand`, `profiles`, `managedProfile`). |
 | `server/builtin-reload.ts` | Installs/removes `extensions/paseo-pi-reload.ts` for built-in pi sessions. |
 | `shared/source.ts` | Normalises a pasted `pi install …` command to its package source. |
 | `shared/rpc.ts` | Status/refresh RPCs. |
 | `shared/management.ts` | One RPC per management operation, all schemas and limits, `PI_MODELS_SECRET_MASK`. |
-| `server/paths.ts` | Resolves the pi agent directory. |
+| `server/paths.ts` | Resolves the pi agent directory, including the active profile. |
+| `server/profiles.ts` | Named agent directories and their Paseo provider overrides. |
+| `server/project.ts` | Reads/writes project `.pi/settings.json` and `.pi/APPEND_SYSTEM.md`. |
 | `server/provider/registration.ts` | Legacy provider registration and availability status (not registered). |
 | `server/provider/connection.ts` | Legacy provider connection: catalog, session dispatch, session map. |
 | `server/provider/rpc.ts` | One `pi --mode rpc` child, JSONL framing, request/response and events. |
@@ -56,16 +58,17 @@ Server (`index.server.ts`, default export `contribute(server)`):
 2. `readSettings()` reads them; invalid or missing settings fall back to `PI_SETTINGS_DEFAULTS`.
 3. `context()` builds a `ManagementContext` per call: settings, resolved session directory, agent
    directory, and a copy of the process environment with `PI_CODING_AGENT_DIR` pinned.
-4. `ensureBuiltinReloadExtension()` runs on startup and whenever launch settings change. With
-   `reloadCommand` on it writes `extensions/paseo-pi-reload.ts`; with it off it removes only that
-   generated file. A user file with the same name is never touched.
+4. `ensureBuiltinReloadExtension()` runs on startup and whenever launch settings change, for the
+   default agent directory and for every profile directory. With `reloadCommand` on it writes
+   `extensions/paseo-pi-reload.ts`; with it off it removes only that generated file. A user file
+   with the same name is never touched.
 5. `server.handle(rpc, handler)` registers one handler per management RPC. No provider is
    registered.
 
 Client (`index.client.tsx`, default export `contribute(client)`): adds the `Pi` sidebar row, the
 `srv_*/plugin/paseo-pi/surface/pi-config` screen, the `pi-launch` settings screen, and four
-command-center items (`Manage Pi`, `Pi providers & models`, `Pi sessions`, `Configure Pi launch`).
-The return value removes everything on unload.
+command-center items (`Manage Pi`, `Pi profiles`, `Project Pi settings`, `Pi providers & models`,
+`Pi sessions`, `Configure Pi launch`). The return value removes everything on unload.
 
 ### 2.2 Legacy provider bridge (not registered)
 
@@ -400,8 +403,10 @@ session directory (depth 3, 5000 files), reads at most 8 MB per file, takes `id`
 substring over title/id/cwd/path.
 
 Delete accepts only an absolute `.jsonl`, realpaths both the file and the session directory,
-requires a regular file inside that directory, then finds Paseo agents whose plugin-provider
-persistence metadata points at that path (`paseoAgentIdsForSession`). Each is deleted with
+requires a regular file inside that directory, then finds Paseo agents whose persistence points at
+that path (`paseoAgentIdsForSession`). Built-in pi stores it as `persistence.nativeHandle`; legacy
+`pi-plugin` agents store it under `persistence.metadata.pluginProviderPersistence.data.sessionFile`.
+Each match is deleted with
 `paseo delete <id> --json` (the CLI cancels a running agent first), falling back from
 `@getpaseo/cli` next to the daemon to `paseo` on `PATH`, and passing `--home` when `PASEO_HOME` is
 set. Only after that succeeds is the JSONL unlinked, so a failed Paseo delete leaves the session for
@@ -452,7 +457,38 @@ extensions, skills, prompts, themes and context files. That is the same path as 
 `client/manage/overview.tsx` shows command, version, availability, model count, session directory,
 agent directory, the model catalog from `piStatus`, and shortcuts into the other tabs.
 
-### 3.9 UI conventions
+### 3.9 Profiles
+
+`server/profiles.ts` implements named agent directories without registering a second provider:
+
+- A name is lowercase letters, numbers, and hyphens, at most 40 characters. The default directory
+  is `~/.pi/profiles/<name>/agent`; an explicit path must be absolute. A profile may not reuse the
+  default agent directory or another profile's directory.
+- `prepare-profile` creates the directory (0700), installs the generated reload extension there,
+  and adds a Paseo provider override `{ extends: "pi", label: "Pi · <name>", env: {
+  PI_CODING_AGENT_DIR: <dir> } }` with id `pi-<name>`. Paseo shows it as `Pi · <name>`.
+- The override is written through `config.patch({ providers })`; `remove-profile-provider` calls
+  `config.patch({ removeProviders: [id] })`. Both are host config mutations, not provider
+  registration, so Paseo's own `pi` provider remains the implementation.
+- `profiles` and `managedProfile` live in the host-scoped `piSettings`. `managedProfile` selects
+  the directory every management RPC reads and writes. The Profiles tab's **Manage** action saves
+  it; the active profile is shown in the tab and in Settings/Overview paths.
+- Removing a profile first removes it from settings and then unregisters the provider. The agent
+  directory is never deleted; it keeps settings, skills, extensions, and session history for a
+  future profile or manual use.
+- Existing Paseo agents keep the provider id they were created with. Choosing a profile affects
+  new agents only.
+
+### 3.10 Project settings
+
+`server/project.ts` resolves the requested path with `realpath`, rejects a non-directory, and edits
+`<root>/.pi/settings.json` and `<root>/.pi/APPEND_SYSTEM.md`. It refuses symlinked `.pi` paths or
+files, creates `.pi` with mode 0700 and files with mode 0600, and uses SHA-256 revisions like the
+user-level files. An empty prompt removes `APPEND_SYSTEM.md`. Pi only applies project settings and
+prompts after the project is trusted (`~/.pi/agent/trust.json`); the tab states this rather than
+editing the trust database.
+
+### 3.11 UI conventions
 
 The panel should read as part of Paseo, not as a separate app. `client/manage/shared.tsx` holds the
 only visual primitives: surfaces use `surface1` with a 1px border and 12px radius, rows are

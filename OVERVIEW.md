@@ -26,6 +26,18 @@ not registered.
 `server/pi-status.ts` reports availability, version, and the model catalog through a short-lived
 RPC child. `server/sessions.ts` resolves and lists session files.
 
+`server/profiles.ts` adds named agent directories without registering another provider. Each
+profile is a Paseo provider override (`{ extends: "pi", env: { PI_CODING_AGENT_DIR } }`) and a
+directory under `~/.pi/profiles/<name>/agent` unless the user picks another absolute path.
+Creating a profile also installs the generated reload extension there. Removing a profile
+unregisters the override and never deletes the directory. The active profile is stored in
+`piSettings.managedProfile`, so every management RPC edits that profile's files. The generated
+reload extension is kept in sync for the default directory and every profile directory.
+
+`server/project.ts` reads and writes `<project>/.pi/settings.json` and
+`<project>/.pi/APPEND_SYSTEM.md`. It resolves the project root, refuses symlinked `.pi` files,
+creates the directory with mode 0700, and uses the same revision checks as the user files.
+
 ## Management
 
 `shared/management.ts` defines the RPC contracts. `server/management.ts` implements them:
@@ -39,13 +51,16 @@ RPC child. `server/sessions.ts` resolves and lists session files.
   reconciled exactly as the CLI does.
 - Skills are parsed from YAML frontmatter, created under the agent directory, deleted with
   realpath containment, or installed from a GitHub file/repository link (`server/skill-source.ts`).
+  User/agents skills can be read and edited as raw `SKILL.md`; package skills stay read-only.
   Each user/agents skill and every extension has its own switch, written as pi's exact `-path`
   marker rather than a whole-run `--no-extensions`/`--no-skills` flag.
 - Models can be fetched from the provider itself (`server/model-source.ts`) and added in one
   revision-checked write.
 - Package sources accept a pasted `pi install …` command (`shared/source.ts`).
 - Session listing reads `.jsonl` headers; deletion realpaths the file, refuses anything outside the
-  resolved session directory, deletes matching Paseo agents through the CLI, then unlinks.
+  resolved session directory, deletes matching Paseo agents through the CLI, then unlinks. An
+  agent matches by built-in pi `persistence.nativeHandle` or the legacy plugin metadata
+  `sessionFile`.
 
 `client/manage/` is the UI, split by tab. `client/manage/shared.tsx` holds theme-token primitives
 (Paseo-style cards, rows, switches, fields, and buttons) shared by the management panel and the
@@ -60,6 +75,8 @@ index.client.tsx         sidebar, screens, command center, reload pill
 server/builtin-reload.ts installs/removes the generated extension
 server/provider/         RPC/model/timeline helpers; legacy provider bridge
 server/management.ts     settings/models/prompt/skills/sessions/package operations
+server/profiles.ts       named agent directories and Paseo provider overrides
+server/project.ts        project .pi settings and prompt
 server/sessions.ts       session file discovery
 server/skill-source.ts   GitHub skill lookup and install
 server/model-source.ts   provider model-list fetch
